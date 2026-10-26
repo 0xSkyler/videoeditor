@@ -218,6 +218,40 @@ public static class MediaEngine
     }
 
     /// <summary>Returns the absolute path of the successfully encoded output.</summary>
+    /// <summary>Generate one lightweight frame for an immediate, offline preview poster.</summary>
+    public static async Task<byte[]> GeneratePosterAsync(string file, CancellationToken token = default)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(12));
+        var psi = new ProcessStartInfo(Tool("ffmpeg"))
+        {
+            RedirectStandardOutput = true, RedirectStandardError = true,
+            UseShellExecute = false, CreateNoWindow = true
+        };
+        foreach (var a in new[]
+        {
+            "-hide_banner", "-loglevel", "error", "-ss", "0.1", "-i", file,
+            "-vf", "scale=w='min(iw,640)':h='min(ih,360)':force_original_aspect_ratio=decrease",
+            "-frames:v", "1", "-vcodec", "png", "-f", "image2pipe", "pipe:1"
+        }) psi.ArgumentList.Add(a);
+        using var p = Process.Start(psi) ?? throw new IOException("Could not start FFmpeg preview.");
+        using var cancellation = deadline.Token.Register(() => { try { if (!p.HasExited) p.Kill(true); } catch { } });
+        try
+        {
+            using var memory = new MemoryStream();
+            var err = p.StandardError.ReadToEndAsync(deadline.Token);
+            await p.StandardOutput.BaseStream.CopyToAsync(memory, deadline.Token);
+            await p.WaitForExitAsync(deadline.Token);
+            if (p.ExitCode != 0 || memory.Length < 64)
+                throw new IOException("Cannot generate video preview: " + await err);
+            return memory.ToArray();
+        }
+        catch (OperationCanceledException) when (!token.IsCancellationRequested)
+        {
+            throw new IOException("Preview image generation timed out; export is still available.");
+        }
+    }
+
     public static Task CheckAudioAsync(string file, CancellationToken token = default) => EnsureStreamAsync(file, "audio", token);
     public static Task CheckImageAsync(string file, CancellationToken token = default) => EnsureStreamAsync(file, "video", token);
 
