@@ -158,6 +158,7 @@ public static class MediaEngine
     }
     public static async Task RunAsync(string executable, IReadOnlyList<string> arguments, Action<double> onProgress, double duration, CancellationToken token)
     {
+        token.ThrowIfCancellationRequested();
         var psi = new ProcessStartInfo(executable) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
         foreach (var s in arguments) psi.ArgumentList.Add(s);
         using var p = new Process { StartInfo = psi, EnableRaisingEvents = true };
@@ -197,6 +198,7 @@ public static class MediaEngine
 
     public static async Task ExportAsync(Options o, MediaDetails details, Action<double> progress, CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
         var errors = Validate(o, details);
         if (errors.Count != 0) throw new InvalidOperationException(string.Join("\n", errors));
         if (o.AudioMode is "Replace with music" or "Mix music") await EnsureStreamAsync(o.Music, "audio", ct);
