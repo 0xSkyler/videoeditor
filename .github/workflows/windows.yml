@@ -15,18 +15,20 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-      - name: Get FFmpeg binaries
+      - name: Get pinned FFmpeg from verified StudioCut v0.2.0 build
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
-          Invoke-WebRequest 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' -OutFile ffmpeg.zip
-          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg-unpacked
+          gh release download v0.2.0 --repo "$env:GITHUB_REPOSITORY" --pattern 'StudioCut-win-x64.zip' --dir bootstrap
+          Expand-Archive bootstrap/StudioCut-win-x64.zip -DestinationPath bootstrap-unpacked
           New-Item -ItemType Directory -Force -Path StudioCut/tools | Out-Null
-          Get-ChildItem -Path ffmpeg-unpacked -Filter ffmpeg.exe -Recurse | Select-Object -First 1 | Copy-Item -Destination StudioCut/tools/ffmpeg.exe
-          Get-ChildItem -Path ffmpeg-unpacked -Filter ffprobe.exe -Recurse | Select-Object -First 1 | Copy-Item -Destination StudioCut/tools/ffprobe.exe
-          $license = Get-ChildItem -Path ffmpeg-unpacked -File -Recurse | Where-Object { $_.Name -like 'LICENSE*' -or $_.Name -like 'COPYING*' } | Select-Object -First 1
-          if ($license) { Copy-Item $license.FullName -Destination StudioCut/tools/FFmpeg-LICENSE.txt }
-          Invoke-WebRequest 'https://www.gnu.org/licenses/gpl-3.0.txt' -OutFile StudioCut/tools/GPL-3.0.txt
+          Copy-Item bootstrap-unpacked/tools/ffmpeg.exe StudioCut/tools/ffmpeg.exe
+          Copy-Item bootstrap-unpacked/tools/ffprobe.exe StudioCut/tools/ffprobe.exe
+          if (Test-Path bootstrap-unpacked/tools/FFmpeg-LICENSE.txt) { Copy-Item bootstrap-unpacked/tools/FFmpeg-LICENSE.txt StudioCut/tools/FFmpeg-LICENSE.txt }
+          if (Test-Path bootstrap-unpacked/tools/GPL-3.0.txt) { Copy-Item bootstrap-unpacked/tools/GPL-3.0.txt StudioCut/tools/GPL-3.0.txt }
+          if (-not (Test-Path StudioCut/tools/GPL-3.0.txt)) { throw 'Pinned FFmpeg package is missing its GPL-3.0 license text.' }
       - name: Make FFmpeg available to tests
         shell: pwsh
         run: Add-Content -Path $env:GITHUB_PATH -Value (Resolve-Path StudioCut/tools).Path
