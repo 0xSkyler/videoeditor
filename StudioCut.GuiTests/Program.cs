@@ -143,6 +143,40 @@ internal static class Program
         return path;
     }
 
+    private static async Task<double> FrequencyStrengthAsync(string file, double start, double seconds, double targetHz)
+    {
+        const int rate = 8000;
+        var psi = new ProcessStartInfo(MediaEngine.Tool("ffmpeg"))
+        {
+            UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardError = true, RedirectStandardOutput = true
+        };
+        foreach (string arg in new[]
+        {
+            "-hide_banner", "-loglevel", "error", "-ss", start.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "-i", file, "-t", seconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "-vn", "-ac", "1", "-ar", "8000", "-f", "f32le", "pipe:1"
+        }) psi.ArgumentList.Add(arg);
+        using var process = Process.Start(psi) ?? throw new Exception("Could not decode exported audio");
+        using var memory = new MemoryStream();
+        var errorsTask = process.StandardError.ReadToEndAsync();
+        await process.StandardOutput.BaseStream.CopyToAsync(memory);
+        await process.WaitForExitAsync();
+        if (process.ExitCode != 0) throw new Exception("Cannot decode audio: " + await errorsTask);
+        byte[] data = memory.ToArray();
+        int count = data.Length / sizeof(float);
+        if (count < 1000) throw new Exception("Exported audio window is too short");
+        double re = 0, im = 0;
+        for (int n = 0; n < count; n++)
+        {
+            double sample = BitConverter.ToSingle(data, n * 4);
+            double phase = 2 * Math.PI * targetHz * n / rate;
+            re += sample * Math.Cos(phase);
+            im -= sample * Math.Sin(phase);
+        }
+        return Math.Sqrt(re * re + im * im) / count;
+    }
+
     private static void Screenshot(MainWindow window, string path)
     {
         try
@@ -206,12 +240,20 @@ internal static class Program
         Ui<CheckBox>(window, "VideoFade").IsChecked = true;
         Ui<TextBox>(window, "Brightness").Text = "0.05";
         Ui<TextBox>(window, "MusicVolume").Text = "25";
+        Ui<TextBox>(window, "MusicOffset").Text = "75";
+        Check(!convert.IsEnabled, "unreasonable music delay is rejected before conversion");
+        Ui<TextBox>(window, "MusicOffset").Text = "0.5";
+        Check(convert.IsEnabled, "half-second music synchronization delay is valid");
         Check(convert.IsEnabled, "mixed narration/music, trim, fade and large overlay accepted");
         Check(Ui<TextBlock>(window, "EstimateText").Text.Contains("Estimated export"), "size estimate displayed");
         var first = await ExportViaUiAsync(window, dir, "edited narration and music");
         var firstDetails = await MediaEngine.ProbeAsync(first);
         Check(Math.Abs(firstDetails.Duration - 2) < .22, "exported clip matches requested 2-second trim");
         Check(firstDetails.AudioTracks == 1, "music mix retains audio");
+        double earlyMusic = await FrequencyStrengthAsync(first, .07, .24, 330);
+        double lateMusic = await FrequencyStrengthAsync(first, .80, .30, 330);
+        Check(lateMusic > earlyMusic * 4 + .0001,
+            $"music actually starts after the configured delay (initial={earlyMusic:0.000000}, late={lateMusic:0.000000})");
 
         Screenshot(window, Path.Combine(dir, "wpf-user-workflow.png"));
         var second = await ExportViaUiAsync(window, dir, "repeat export without overwrite");
