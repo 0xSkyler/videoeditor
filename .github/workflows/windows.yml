@@ -28,7 +28,16 @@ jobs:
         shell: pwsh
         run: Add-Content -Path $env:GITHUB_PATH -Value (Resolve-Path StudioCut/tools).Path
       - name: Repeated integration and validation tests
-        run: dotnet run --project StudioCut.Tests/StudioCut.Tests.csproj -c Release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $p = Start-Process -FilePath dotnet -ArgumentList 'run --project StudioCut.Tests/StudioCut.Tests.csproj -c Release' -PassThru -NoNewWindow -RedirectStandardOutput test-out.log -RedirectStandardError test-err.log
+          $finished = $p.WaitForExit(150000)
+          if (-not $finished) { taskkill /PID $p.Id /T /F | Out-Null }
+          Get-Content test-out.log
+          Get-Content test-err.log
+          if (-not $finished) { throw 'Tests exceeded 150-second limit; see logs above for last completed step.' }
+          if ($p.ExitCode -ne 0) { throw "Regression tests failed with exit code $($p.ExitCode)" }
       - name: Publish self-contained Windows application
         run: dotnet publish StudioCut/StudioCut.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o dist
       - name: Copy media tools
