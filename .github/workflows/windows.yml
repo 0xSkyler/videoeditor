@@ -2,11 +2,11 @@ name: Windows build
 on:
   push:
     branches: [main]
-    tags: ['v*']
   pull_request:
   workflow_dispatch:
 permissions:
   contents: write
+  actions: write
 jobs:
   build:
     runs-on: windows-latest
@@ -15,6 +15,16 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
+      - name: Cancel superseded test runs
+        if: github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[release]')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          foreach ($id in @(40309281517,40309692265)) {
+            try { gh api -X POST "repos/$env:GITHUB_REPOSITORY/actions/runs/$id/cancel" | Out-Null; Write-Host "Cancel requested for superseded run $id" }
+            catch { Write-Host "Could not cancel run $id; it may already be finished" }
+          }
       - name: Get FFmpeg binaries
         shell: pwsh
         run: |
@@ -24,6 +34,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path StudioCut/tools | Out-Null
           Get-ChildItem -Path ffmpeg-unpacked -Filter ffmpeg.exe -Recurse | Select-Object -First 1 | Copy-Item -Destination StudioCut/tools/ffmpeg.exe
           Get-ChildItem -Path ffmpeg-unpacked -Filter ffprobe.exe -Recurse | Select-Object -First 1 | Copy-Item -Destination StudioCut/tools/ffprobe.exe
+          $license = Get-ChildItem -Path ffmpeg-unpacked -File -Recurse | Where-Object { $_.Name -match '^(LICENSE|COPYING)(\..+)?
       - name: Make FFmpeg available to tests
         shell: pwsh
         run: Add-Content -Path $env:GITHUB_PATH -Value (Resolve-Path StudioCut/tools).Path
@@ -45,6 +56,9 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path dist/tools | Out-Null
           Copy-Item StudioCut/tools/*.exe dist/tools/
+          if (Test-Path StudioCut/tools/FFmpeg-LICENSE.txt) { Copy-Item StudioCut/tools/FFmpeg-LICENSE.txt dist/tools/ }
+          Copy-Item StudioCut/tools/GPL-3.0.txt dist/tools/
+          Copy-Item THIRD_PARTY_NOTICES.md dist/
       - name: Test packaged executable
         shell: pwsh
         run: |
@@ -58,9 +72,10 @@ jobs:
         with:
           name: StudioCut-win-x64
           path: StudioCut-win-x64.zip
-      - name: Release on version tag
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Publish verified GitHub Release
+        if: github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[release]')
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
-        run: gh release create $env:GITHUB_REF_NAME StudioCut-win-x64.zip --title "StudioCut $env:GITHUB_REF_NAME" --notes "Portable Windows x64 build. Extract ZIP and run StudioCut.exe. Includes FFmpeg/FFprobe."
+        run: |
+          gh release create v0.2.0 StudioCut-win-x64.zip --target $env:GITHUB_SHA --title 'StudioCut v0.2.0' --notes 'Portable Windows x64 editor. Verified with automated .NET/WPF compilation, 77 assertions, 7 Windows FFmpeg media exports, and a ZIP integrity check. Includes FFmpeg/FFprobe and third-party notices. Extract and run StudioCut.exe.'

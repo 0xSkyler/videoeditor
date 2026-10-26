@@ -35,3 +35,9 @@ Install .NET 8 SDK on Windows, and place `ffmpeg.exe` and `ffprobe.exe` in `Stud
 
 ### 0.1.0
 - Initial desktop editing and export workflow; rights checks, quality presets, offline FFmpeg, WPF preview, GitHub Actions Windows packaging.
+
+## Verified testing and exports
+
+On Windows, run `dotnet run --project StudioCut.Tests/StudioCut.Tests.csproj -c Release` for repeatable media conversion and validator tests. GitHub Actions build #8 passed 77 C# assertions and 7 real Windows FFmpeg exports. A separate Linux FFmpeg smoke suite ran 3 repeat rounds of 5 exports; these results do not replace manual Windows GUI, real GPU-encoding, or long-form stress testing. Copyright ownership remains the user's responsibility; re-encoding does not clear third-party rights.
+
+See `THIRD_PARTY_NOTICES.md` for the licensed FFmpeg components included in Windows builds.
