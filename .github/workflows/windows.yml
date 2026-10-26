@@ -41,6 +41,26 @@ jobs:
           Get-Content test-err.log
           if (-not $finished) { throw 'Tests exceeded 150-second limit; see logs above for last completed step.' }
           if ($p.ExitCode -ne 0) { throw "Regression tests failed with exit code $($p.ExitCode)" }
+      - name: WPF user-journey acceptance test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $p = Start-Process -FilePath dotnet -ArgumentList 'run --project StudioCut.GuiTests/StudioCut.GuiTests.csproj -c Release' -PassThru -NoNewWindow -RedirectStandardOutput gui-out.log -RedirectStandardError gui-err.log
+          $finished = $p.WaitForExit(150000)
+          if (-not $finished) { taskkill /PID $p.Id /T /F | Out-Null }
+          Get-Content gui-out.log
+          Get-Content gui-err.log
+          if (-not $finished) { throw 'WPF user-workflow test exceeded 150 seconds' }
+          if ($p.ExitCode -ne 0) { throw "WPF GUI acceptance failed with exit code $($p.ExitCode)" }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: StudioCut-user-acceptance
+          path: |
+            ux-results/
+            gui-out.log
+            gui-err.log
+          if-no-files-found: warn
       - name: Publish self-contained Windows application
         run: dotnet publish StudioCut/StudioCut.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o dist
       - name: Copy media tools
