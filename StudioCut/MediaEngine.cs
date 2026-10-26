@@ -68,6 +68,7 @@ public static class MediaEngine
                 if (o.CropW <= 0 || o.CropH <= 0 || o.CropX < 0 || o.CropY < 0 || o.CropX + o.CropW > media.Width || o.CropY + o.CropH > media.Height) errors.Add("Crop rectangle must fit inside source dimensions.");
             }
         }
+        if (!double.IsFinite(o.Offset) || Math.Abs(o.Offset) > 60) errors.Add("Music offset must be between -60 and +60 seconds.");
         if (o.Width < 0 || o.Height < 0 || o.Fps < 0 || o.Width > 7680 || o.Height > 4320 || o.Fps > 120
             || (o.Width != 0 && (o.Width < 16 || o.Width % 2 != 0))
             || (o.Height != 0 && (o.Height < 16 || o.Height % 2 != 0)))
@@ -141,6 +142,13 @@ public static class MediaEngine
         }
         else chains.Add("[vbase]null[vout]");
         args.AddRange(new[] { "-map", "[vout]" });
+        // A positive offset delays background music. A negative offset skips that
+        // much of its intro before mixing/replacing; narration remains aligned.
+        string musicTrim = o.Offset < 0
+            ? $"atrim=start={F(-o.Offset)}:duration={F(duration)}"
+            : $"atrim=duration={F(duration)}";
+        string musicDelay = o.Offset > 0 ? $",adelay={F(Math.Round(o.Offset * 1000))}:all=1" : "";
+        string musicChain = $"[1:a:0]{musicTrim},asetpts=PTS-STARTPTS,{FilterAudio(o,duration,false)}{musicDelay},apad,atrim=duration={F(duration)},asetpts=PTS-STARTPTS";
         if (o.AudioMode == "Keep original")
         {
             chains.Add($"[0:a:{o.OriginalAudioTrack}]{FilterAudio(o,duration,true)}[aout]");
@@ -148,13 +156,13 @@ public static class MediaEngine
         }
         else if (o.AudioMode == "Replace with music")
         {
-            chains.Add($"[1:a:0]atrim=duration={F(duration)},asetpts=PTS-STARTPTS,{FilterAudio(o,duration,false)}[aout]");
+            chains.Add(musicChain + "[aout]");
             args.AddRange(new[] { "-map", "[aout]" });
         }
         else if (o.AudioMode == "Mix music")
         {
             chains.Add($"[0:a:{o.OriginalAudioTrack}]{FilterAudio(o,duration,true)}[orig]");
-            chains.Add($"[1:a:0]atrim=duration={F(duration)},asetpts=PTS-STARTPTS,{FilterAudio(o,duration,false)}[bg]");
+            chains.Add(musicChain + "[bg]");
             chains.Add("[orig][bg]amix=inputs=2:duration=first:dropout_transition=2[aout]");
             args.AddRange(new[] { "-map", "[aout]" });
         }
