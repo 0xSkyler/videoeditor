@@ -1,28 +1,59 @@
 using Microsoft.Win32;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Threading;
+
 namespace StudioCut;
+
 public partial class MainWindow : Window
 {
-    private string source = "", music = "", overlay = "", folder = Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
+    private string source = "", music = "", overlay = "";
+    private string folder = Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
+    private string lastOutput = "";
     private MediaDetails? details;
     private CancellationTokenSource? convertCancellation;
-    private bool busy;
-    // XAML option-change events can fire before all named controls exist.
-    private bool initialized;
+    private readonly DispatcherTimer playbackTimer;
+    private bool busy, initialized, checkingAsset, updatingSeek;
     private int loadVersion;
+
     public MainWindow()
     {
         InitializeComponent();
-        AudioMode.SelectedIndex = 0; Format.SelectedIndex = 0; Quality.SelectedIndex = 1;
-        FolderName.Text = folder; initialized = true; Refresh();
+        if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
+            folder = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
+            folder = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        AudioMode.SelectedIndex = 0;
+        Format.SelectedIndex = 0;
+        Quality.SelectedIndex = 1;
+        FolderName.Text = folder;
+        playbackTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromMilliseconds(250)
+        };
+        playbackTimer.Tick += (_, _) => UpdatePlaybackPosition();
+        playbackTimer.Start();
+        initialized = true;
+        Refresh();
     }
-    private static string Selected(ComboBox c) => (c.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "";
-    private static double Numeric(TextBox box, double fallback = 0) => double.TryParse(box.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out double v) ? v : double.NaN;
-    private static int Int(TextBox box) => int.TryParse(box.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int n) ? n : -999;
+
+    private static string Selected(ComboBox c) =>
+        (c.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "";
+    private static double Numeric(TextBox box) =>
+        double.TryParse(box.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out double v) ? v : double.NaN;
+    private static int Int(TextBox box) =>
+        int.TryParse(box.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int n) ? n : -999;
+    private static string Clock(double seconds)
+    {
+        if (!double.IsFinite(seconds) || seconds < 0) seconds = 0;
+        var t = TimeSpan.FromSeconds(seconds);
+        return t.TotalHours >= 1 ? t.ToString(@"hh\:mm\:ss") : t.ToString(@"mm\:ss");
+    }
+
     private Options ReadOptions() => new()
     {
         Source = source, Music = music, Overlay = overlay, OutputFolder = folder,
@@ -39,77 +70,295 @@ public partial class MainWindow : Window
         CropX = Int(CropX), CropY = Int(CropY), CropW = Int(CropW), CropH = Int(CropH),
         OriginalAudioTrack = AudioTrack.SelectedIndex < 0 ? 0 : AudioTrack.SelectedIndex
     };
+
     private void Refresh()
     {
         if (!initialized) return;
-        var errors = MediaEngine.Validate(ReadOptions(), details);
-        ConvertButton.IsEnabled = !busy && errors.Count == 0;
-        ValidationText.Text = busy ? "" : string.Join("  •  ", errors);
+        var options = ReadOptions();
+        var errors = MediaEngine.Validate(options, details);
+        ConvertButton.IsEnabled = !busy && !checkingAsset && errors.Count == 0;
+        EditorScroll.IsEnabled = !busy && !checkingAsset;
+        ValidationText.Text = busy ? "Exporting with the selected settings..."
+            : checkingAsset ? "Checking selected media file..."
+            : errors.Count == 0 ? "Ready to export. This creates a new video and keeps the source unchanged."
+            : string.Join("  •  ", errors.Take(3)) + (errors.Count > 3 ? $"  •  +{errors.Count - 3} more issues" : "");
+        ValidationText.Foreground = errors.Count > 0 && !busy && !checkingAsset
+            ? System.Windows.Media.Brushes.LightSalmon : System.Windows.Media.Brushes.LightGreen;
+        if (details != null && double.IsFinite(options.Start) && double.IsFinite(options.End)
+            && options.Start >= 0 && options.Start < details.Duration
+            && (options.End == 0 || options.End > options.Start))
+        {
+            double mb = MediaEngine.EstimateBytes(options, details) / 1048576.0;
+            EstimateText.Text = $"Estimated export: about {mb:0.0} MB (varies with video content)";
+        }
+        else EstimateText.Text = "";
+        OpenExportButton.IsEnabled = File.Exists(lastOutput);
     }
+
     private void OptionChanged(object sender, RoutedEventArgs e) => Refresh();
+
+    private void UpdatePlaybackPosition()
+    {
+        if (details == null || updatingSeek || !Preview.NaturalDuration.HasTimeSpan) return;
+        double value = Math.Clamp(Preview.Position.TotalSeconds, 0, details.Duration);
+        updatingSeek = true;
+        SeekSlider.Value = value;
+        updatingSeek = false;
+        PlaybackTime.Text = $"{Clock(value)} / {Clock(details.Duration)}";
+    }
+
+    private void SeekChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (!initialized || updatingSeek || details == null) return;
+        PlaybackTime.Text = $"{Clock(SeekSlider.Value)} / {Clock(details.Duration)}";
+        try { Preview.Position = TimeSpan.FromSeconds(Math.Clamp(SeekSlider.Value, 0, details.Duration)); }
+        catch (InvalidOperationException) { /* Codec may not be previewable by Windows */ }
+    }
+
+    private void PreviewOpened(object sender, RoutedEventArgs e)
+    {
+        try { Preview.Pause(); } catch (InvalidOperationException) { }
+        UpdatePlaybackPosition();
+    }
+
+    private void PreviewEnded(object sender, RoutedEventArgs e)
+    {
+        Preview.Pause();
+        Preview.Position = TimeSpan.Zero;
+        UpdatePlaybackPosition();
+    }
+
+    private void SetStartFromPreviewClick(object sender, RoutedEventArgs e)
+    {
+        if (details == null) return;
+        TrimStart.Text = Math.Min(details.Duration - .01, SeekSlider.Value).ToString("0.##", CultureInfo.InvariantCulture);
+    }
+
+    private void SetEndFromPreviewClick(object sender, RoutedEventArgs e)
+    {
+        if (details == null) return;
+        TrimEnd.Text = Math.Min(details.Duration, SeekSlider.Value).ToString("0.##", CultureInfo.InvariantCulture);
+    }
+
     private async Task LoadVideo(string path)
     {
-        if (busy) return;
+        if (busy || checkingAsset) return;
         int version = ++loadVersion;
-        source = path; details = null; Status.Text = "Analyzing video..."; Refresh();
+        source = path;
+        details = null;
+        lastOutput = "";
+        OutputInfo.Text = "";
+        VideoInfo.Text = "";
+        Preview.Stop();
+        Preview.Source = null;
+        AudioTrack.Items.Clear();
+        RightsVideo.IsChecked = false;
+        RightsAudio.IsChecked = false;
+        SeekSlider.Maximum = 1;
+        SeekSlider.Value = 0;
+        PlaybackTime.Text = "00:00 / 00:00";
+        Status.Text = "Analyzing video...";
+        Refresh();
         try
         {
             var probed = await MediaEngine.ProbeAsync(path);
             if (version != loadVersion) return;
             details = probed;
-            Preview.Source = new Uri(Path.GetFullPath(path));
-            AudioTrack.Items.Clear();
-            for (int i = 0; i < details.AudioTracks; i++) AudioTrack.Items.Add(new ComboBoxItem { Content = $"Track {i + 1}" });
+            AudioMode.SelectedIndex = details.AudioTracks > 0 ? 0 : 1;
+            for (int i = 0; i < details.AudioTracks; i++)
+                AudioTrack.Items.Add(new ComboBoxItem { Content = $"Track {i + 1}" });
             if (details.AudioTracks > 0) AudioTrack.SelectedIndex = 0;
-            VideoInfo.Text = $"{Path.GetFileName(path)}\n{details.Width} × {details.Height} | {details.Fps:0.##} FPS\n{TimeSpan.FromSeconds(details.Duration):g} | {details.AudioTracks} audio track(s)\n{details.Size / 1048576.0:0.0} MB";
-            Status.Text = "Video loaded";
+            SeekSlider.Maximum = details.Duration;
+            PlaybackTime.Text = $"00:00 / {Clock(details.Duration)}";
+            Preview.Source = new Uri(Path.GetFullPath(path));
+            VideoInfo.Text = $"{Path.GetFileName(path)}\n{details.Width} × {details.Height} | {details.Fps:0.##} FPS\n{Clock(details.Duration)} | {details.AudioTracks} audio track(s)\n{details.Size / 1048576.0:0.0} MB";
+            Status.Text = details.AudioTracks == 0
+                ? "Video loaded without audio; Mute mode selected automatically."
+                : "Video loaded. Confirm rights, choose settings, and export.";
         }
-        catch (Exception ex) { if (version != loadVersion) return; VideoInfo.Text = ex.Message; Status.Text = "Could not open video"; }
+        catch (Exception ex)
+        {
+            if (version != loadVersion) return;
+            VideoInfo.Text = ex.Message;
+            Preview.Source = null;
+            Status.Text = "Could not open video";
+        }
         Refresh();
     }
+
     private async void OpenVideoClick(object sender, RoutedEventArgs e)
     {
-        var d = new OpenFileDialog { Filter = "Video files|*.mp4;*.mov;*.mkv;*.avi;*.webm;*.m4v|All files|*.*" };
+        if (busy) return;
+        var d = new OpenFileDialog
+        {
+            Filter = "Video files|*.mp4;*.mov;*.mkv;*.avi;*.webm;*.m4v|All files|*.*"
+        };
         if (d.ShowDialog() == true) await LoadVideo(d.FileName);
     }
+
     private async void OnDrop(object sender, DragEventArgs e)
     {
-        if (e.Data.GetDataPresent(DataFormats.FileDrop) && e.Data.GetData(DataFormats.FileDrop) is string[] files && files.Length > 0) await LoadVideo(files[0]);
+        if (e.Data.GetDataPresent(DataFormats.FileDrop)
+            && e.Data.GetData(DataFormats.FileDrop) is string[] files && files.Length > 0)
+            await LoadVideo(files[0]);
     }
-    private void MusicClick(object sender, RoutedEventArgs e)
+
+    private async void MusicClick(object sender, RoutedEventArgs e)
     {
-        var d = new OpenFileDialog { Filter = "Audio files|*.mp3;*.wav;*.m4a;*.aac;*.flac;*.ogg|All files|*.*" };
-        if (d.ShowDialog() == true) { music = d.FileName; MusicName.Text = Path.GetFileName(music); Refresh(); }
-    }
-    private void OverlayClick(object sender, RoutedEventArgs e)
-    {
-        var d = new OpenFileDialog { Filter = "Image files|*.png;*.jpg;*.jpeg;*.webp" };
-        if (d.ShowDialog() == true) { overlay = d.FileName; Watermark.IsChecked = true; Refresh(); }
-    }
-    private void FolderClick(object sender, RoutedEventArgs e)
-    {
-        var d = new Microsoft.Win32.OpenFolderDialog { Title = "Choose export folder" };
-        if (d.ShowDialog() == true) { folder = d.FolderName; FolderName.Text = folder; initialized = true; Refresh(); }
-    }
-    private void PlayClick(object sender, RoutedEventArgs e) => Preview.Play();
-    private void PauseClick(object sender, RoutedEventArgs e) => Preview.Pause();
-    private void PreviewFailed(object sender, ExceptionRoutedEventArgs e) => Status.Text = "Windows cannot preview this codec; FFmpeg export may still work.";
-    private async void ConvertClick(object sender, RoutedEventArgs e)
-    {
-        if (busy || details == null) return;
-        var options = ReadOptions();
-        if (MediaEngine.Validate(options, details).Count > 0) { Refresh(); return; }
-        busy = true; convertCancellation = new CancellationTokenSource();
-        CancelButton.IsEnabled = true; Progress.Value = 0; Status.Text = "Encoding..."; Refresh();
+        if (busy || checkingAsset) return;
+        var d = new OpenFileDialog
+        {
+            Filter = "Audio files|*.mp3;*.wav;*.m4a;*.aac;*.flac;*.ogg|All files|*.*"
+        };
+        if (d.ShowDialog() != true) return;
+        music = "";
+        MusicName.Text = "Checking...";
+        checkingAsset = true;
+        Refresh();
         try
         {
-            var progress = new Progress<double>(p => { Progress.Value = p * 100; Status.Text = $"Encoding {p:P0}"; });
-            await MediaEngine.ExportAsync(options, details, p => ((IProgress<double>)progress).Report(p), convertCancellation.Token);
-            Status.Text = "Completed. Open the selected export folder to find the new file.";
+            await MediaEngine.CheckAudioAsync(d.FileName);
+            music = d.FileName;
+            MusicName.Text = Path.GetFileName(music);
+            if (AudioMode.SelectedIndex < 2) AudioMode.SelectedIndex = 2;
+            RightsAudio.IsChecked = false;
+            Status.Text = "Music loaded. Confirm its usage rights to continue.";
         }
-        catch (OperationCanceledException) { Status.Text = "Cancelled"; }
-        catch (Exception ex) { Status.Text = "Export failed"; MessageBox.Show(ex.Message, "Encoding error", MessageBoxButton.OK, MessageBoxImage.Error); }
-        finally { busy = false; CancelButton.IsEnabled = false; convertCancellation?.Dispose(); convertCancellation = null; Refresh(); }
+        catch (Exception ex)
+        {
+            MusicName.Text = "Invalid music file";
+            MessageBox.Show(ex.Message, "Cannot use this audio file", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally { checkingAsset = false; Refresh(); }
     }
+
+    private async void OverlayClick(object sender, RoutedEventArgs e)
+    {
+        if (busy || checkingAsset) return;
+        var d = new OpenFileDialog { Filter = "Image files|*.png;*.jpg;*.jpeg;*.webp" };
+        if (d.ShowDialog() != true) return;
+        overlay = "";
+        Watermark.IsChecked = false;
+        checkingAsset = true;
+        Refresh();
+        try
+        {
+            await MediaEngine.CheckImageAsync(d.FileName);
+            overlay = d.FileName;
+            Watermark.IsChecked = true;
+            OverlayName.Text = Path.GetFileName(overlay);
+            RightsVideo.IsChecked = false;
+            Status.Text = "Overlay loaded and fitted to the corner. Confirm visual rights.";
+        }
+        catch (Exception ex)
+        {
+            OverlayName.Text = "Invalid overlay";
+            MessageBox.Show(ex.Message, "Cannot use this image", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally { checkingAsset = false; Refresh(); }
+    }
+
+    private void FolderClick(object sender, RoutedEventArgs e)
+    {
+        if (busy) return;
+        var d = new Microsoft.Win32.OpenFolderDialog { Title = "Choose export folder" };
+        if (d.ShowDialog() == true) { folder = d.FolderName; FolderName.Text = folder; Refresh(); }
+    }
+
+    private void OpenFolderClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (!Directory.Exists(folder)) throw new DirectoryNotFoundException("Choose a valid export folder first.");
+            Process.Start(new ProcessStartInfo("explorer.exe") { ArgumentList = { folder }, UseShellExecute = true });
+        }
+        catch (Exception ex) { MessageBox.Show(ex.Message, "Cannot open folder", MessageBoxButton.OK, MessageBoxImage.Warning); }
+    }
+
+    private void OpenExportClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (!File.Exists(lastOutput)) throw new FileNotFoundException("The exported file could not be found.");
+            Process.Start(new ProcessStartInfo(lastOutput) { UseShellExecute = true });
+        }
+        catch (Exception ex) { MessageBox.Show(ex.Message, "Cannot open exported video", MessageBoxButton.OK, MessageBoxImage.Warning); }
+    }
+
+    private void PlayClick(object sender, RoutedEventArgs e)
+    {
+        if (details != null) Preview.Play();
+    }
+
+    private void PauseClick(object sender, RoutedEventArgs e)
+    {
+        if (details != null) Preview.Pause();
+    }
+
+    private void PreviewFailed(object sender, ExceptionRoutedEventArgs e)
+    {
+        PreviewNote.Text = "Windows cannot preview this codec; FFmpeg export may still work.";
+    }
+
+    private async void ConvertClick(object sender, RoutedEventArgs e)
+    {
+        if (busy || checkingAsset || details == null) return;
+        var options = ReadOptions();
+        if (MediaEngine.Validate(options, details).Count > 0) { Refresh(); return; }
+        busy = true;
+        lastOutput = "";
+        OutputInfo.Text = "";
+        convertCancellation = new CancellationTokenSource();
+        CancelButton.IsEnabled = true;
+        Progress.Value = 0;
+        Status.Text = "Encoding...";
+        Refresh();
+        bool finished = false;
+        try
+        {
+            var progress = new Progress<double>(p =>
+            {
+                if (!busy || finished) return;
+                Progress.Value = p * 100;
+                Status.Text = $"Encoding {p:P0}";
+            });
+            string output = await MediaEngine.ExportAsync(options, details,
+                p => ((IProgress<double>)progress).Report(p), convertCancellation.Token);
+            finished = true;
+            lastOutput = output;
+            Progress.Value = 100;
+            double size = new FileInfo(output).Length / 1048576.0;
+            OutputInfo.Text = $"Saved: {output} ({size:0.0} MB)";
+            Status.Text = "Completed. Open the exported video or folder to inspect it.";
+        }
+        catch (OperationCanceledException)
+        {
+            finished = true;
+            Status.Text = "Cancelled. No incomplete output was kept.";
+        }
+        catch (Exception ex)
+        {
+            finished = true;
+            Status.Text = "Export failed";
+            MessageBox.Show(ex.Message, "Encoding error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            busy = false;
+            CancelButton.IsEnabled = false;
+            convertCancellation?.Dispose();
+            convertCancellation = null;
+            Refresh();
+        }
+    }
+
     private void CancelClick(object sender, RoutedEventArgs e) => convertCancellation?.Cancel();
+
+    protected override void OnClosed(EventArgs e)
+    {
+        if (busy) convertCancellation?.Cancel();
+        playbackTimer.Stop();
+        Preview.Stop();
+        base.OnClosed(e);
+    }
 }
