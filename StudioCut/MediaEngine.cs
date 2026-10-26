@@ -69,6 +69,8 @@ public static class MediaEngine
             }
         }
         if (!double.IsFinite(o.Offset) || Math.Abs(o.Offset) > 60) errors.Add("Music offset must be between -60 and +60 seconds.");
+        if (o.Text.Length > 72 || !Regex.IsMatch(o.Text, @"^[\p{L}\p{N} .,!?+()@#-]*$"))
+            errors.Add("Text overlay must be one line (up to 72 characters); only letters, numbers and simple punctuation are supported.");
         if (o.Width < 0 || o.Height < 0 || o.Fps < 0 || o.Width > 7680 || o.Height > 4320 || o.Fps > 120
             || (o.Width != 0 && (o.Width < 16 || o.Width % 2 != 0))
             || (o.Height != 0 && (o.Height < 16 || o.Height % 2 != 0)))
@@ -123,6 +125,15 @@ public static class MediaEngine
         }
         if (o.Width == 0 && o.Height == 0) videoFilters.Add("pad=ceil(iw/2)*2:ceil(ih/2)*2");
         if (o.Brightness != 0 || o.Contrast != 1 || o.Saturation != 1) videoFilters.Add($"eq=brightness={F(o.Brightness)}:contrast={F(o.Contrast)}:saturation={F(o.Saturation)}");
+        if (!string.IsNullOrWhiteSpace(o.Text))
+        {
+            double baseH = o.CropH > 0 ? o.CropH : d.Height;
+            double baseW = o.CropW > 0 ? o.CropW : d.Width;
+            double finalH = o.Height > 0 ? o.Height : o.Width > 0 ? o.Width * baseH / baseW : baseH;
+            int textSize = Math.Clamp((int)Math.Round(finalH / 28), 14, 44);
+            // Validated single-line text is safe to include in the filter graph.
+            videoFilters.Add($"drawtext=text='{o.Text}':fontcolor=white:fontsize={textSize}:box=1:boxcolor=black@0.6:boxborderw=6:x=20:y=h-text_h-24");
+        }
         if (o.VideoFade && duration > .5) { videoFilters.Add($"fade=t=in:st=0:d={F(Math.Min(1,duration/3))}"); videoFilters.Add($"fade=t=out:st={F(Math.Max(0,duration-1))}:d={F(Math.Min(1,duration))}"); }
         if (o.Fps > 0) videoFilters.Add($"fps={o.Fps}");
         var chains = new List<string>();
