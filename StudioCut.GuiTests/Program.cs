@@ -175,6 +175,11 @@ internal static class Program
         Check(!convert.IsEnabled, "initial Start Convert disabled");
         await LoadAsync(window, source);
         Check(Ui<TextBlock>(window, "VideoInfo").Text.Contains("320 × 180"), "source dimensions visible");
+        Check(Ui<Image>(window, "PosterImage").Source is BitmapSource poster && poster.PixelWidth > 0, "first-frame poster generated from actual source");
+        Check(Ui<Image>(window, "PosterImage").Visibility == Visibility.Visible, "preview poster visible before Play");
+        Check(Ui<CheckBox>(window, "Normalize").Foreground is SolidColorBrush textBrush
+            && textBrush.Color.R > 180 && textBrush.Color.G > 180 && textBrush.Color.B > 180,
+            "dark-theme checkbox text has light foreground");
         Check(Ui<ComboBox>(window, "AudioMode").SelectedIndex == 0, "normal source defaults to keep audio");
         Check(!convert.IsEnabled, "copyright confirmations required");
         Ui<CheckBox>(window, "RightsVideo").IsChecked = true;
@@ -231,6 +236,7 @@ internal static class Program
         Check(!convert.IsEnabled, "invalid source blocks conversion");
         Check(Ui<TextBlock>(window, "Status").Text == "Could not open video", "invalid source gives clear error");
         Check(Ui<MediaElement>(window, "Preview").Source == null, "invalid source clears stale preview");
+        Check(Ui<Image>(window, "PosterImage").Source == null, "invalid source clears stale thumbnail");
         var result = new
         {
             test_date = DateTimeOffset.UtcNow, assertions, scenario_results = measurements,
