@@ -89,6 +89,8 @@ internal static class Program
             Check(MediaEngine.Validate(valid, d).Count == 0, "valid source accepts export");
             var v = NewOptions(source, dir); v.RightsVideo = false; Invalid(v, d, "visual rights");
             v = NewOptions(source, dir); v.RightsAudio = false; Invalid(v, d, "audio rights");
+            v = NewOptions(source, dir); v.AudioMode = "Mute all"; v.RightsAudio = false;
+            Check(MediaEngine.Validate(v, d).Count == 0, "muting audio does not require rights to omitted source soundtrack");
             v = NewOptions(source, dir); v.AudioMode = "Replace with music"; Invalid(v, d, "missing licensed music");
             v = NewOptions(source, dir); v.AudioMode = "invalid"; Invalid(v, d, "unsupported audio mode");
             v = NewOptions(source, dir); v.Watermark = true; Invalid(v, d, "missing overlay");
@@ -122,6 +124,32 @@ internal static class Program
             await ExportVerify(v, silent, ".mp4", true);
             v = NewOptions(source, dir); v.Hardware = true;
             await ExportVerify(v, d, ".mp4", true);
+            Console.WriteLine("[RUN] Invalid audio/image asset preflight (conversion must not begin)");
+            string brokenAudio = Path.Combine(dir, "bad-music.wav");
+            string brokenOverlay = Path.Combine(dir, "bad-overlay.png");
+            await File.WriteAllTextAsync(brokenAudio, "Not a valid audio stream");
+            await File.WriteAllTextAsync(brokenOverlay, "Not a valid image");
+            v = NewOptions(source, dir); v.AudioMode = "Replace with music"; v.Music = brokenAudio;
+            bool rejected = false;
+            try { await MediaEngine.ExportAsync(v, d, _ => { }, CancellationToken.None); }
+            catch (InvalidOperationException) { rejected = true; }
+            Check(rejected, "corrupted music is rejected before encoding");
+            v = NewOptions(source, dir); v.Watermark = true; v.Overlay = brokenOverlay;
+            rejected = false;
+            try { await MediaEngine.ExportAsync(v, d, _ => { }, CancellationToken.None); }
+            catch (InvalidOperationException) { rejected = true; }
+            Check(rejected, "corrupted overlay is rejected before encoding");
+            Console.WriteLine("[RUN] Cancellation cleanup");
+            v = NewOptions(source, dir);
+            using (var cancelled = new CancellationTokenSource())
+            {
+                cancelled.Cancel();
+                bool cancelledCorrectly = false;
+                try { await MediaEngine.ExportAsync(v, d, _ => { }, cancelled.Token); }
+                catch (OperationCanceledException) { cancelledCorrectly = true; }
+                Check(cancelledCorrectly, "cancelled encoding returns cancellation");
+            }
+            Check(Directory.GetFiles(dir, "*_edited_*").Length == exports, "invalid and cancelled exports did not leave partial files");
             Console.WriteLine($"RESULT: PASS: {assertions} assertions and {exports} real FFmpeg exports");
         }
         finally

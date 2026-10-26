@@ -50,7 +50,7 @@ public static class MediaEngine
         if (!File.Exists(o.Source)) errors.Add("Select a readable source video.");
         if (media == null) errors.Add("Probe the source video before exporting.");
         if (!o.RightsVideo) errors.Add("Confirm permission to use the video visuals.");
-        if (!o.RightsAudio) errors.Add("Confirm rights to every included audio track/effect.");
+        if (o.AudioMode != "Mute all" && !o.RightsAudio) errors.Add("Confirm rights to every included audio track/effect.");
         if ((o.AudioMode is "Replace with music" or "Mix music") && !File.Exists(o.Music)) errors.Add("Select a valid licensed music file.");
         if (o.Watermark && !File.Exists(o.Overlay)) errors.Add("Select a valid image overlay.");
         if (o.AudioMode is not ("Mute all" or "Keep original" or "Replace with music" or "Mix music")) errors.Add("Invalid audio mode.");
@@ -174,10 +174,33 @@ public static class MediaEngine
         if (p.ExitCode != 0) throw new IOException("FFmpeg failed:\n" + error);
         onProgress(1);
     }
+    static async Task EnsureStreamAsync(string file, string kind, CancellationToken token)
+    {
+        // Validate optional media before FFmpeg starts encoding. File.Exists alone
+        // cannot detect a corrupt audio file or an image with no decodable video stream.
+        var psi = new ProcessStartInfo(Tool("ffprobe"))
+        {
+            RedirectStandardOutput = true, RedirectStandardError = true,
+            UseShellExecute = false, CreateNoWindow = true
+        };
+        foreach (var arg in new[] { "-v", "error", "-select_streams", kind == "audio" ? "a:0" : "v:0", "-show_entries", "stream=codec_type", "-of", "csv=p=0", file })
+            psi.ArgumentList.Add(arg);
+        using var p = Process.Start(psi) ?? throw new IOException("Could not start ffprobe to check selected media.");
+        Task<string> outputTask = p.StandardOutput.ReadToEndAsync(token);
+        Task<string> errorTask = p.StandardError.ReadToEndAsync(token);
+        await p.WaitForExitAsync(token);
+        string output = await outputTask;
+        string err = await errorTask;
+        if (p.ExitCode != 0 || !output.Split('\n', StringSplitOptions.TrimEntries).Contains(kind))
+            throw new InvalidOperationException($"Selected {kind} asset is not a readable {kind} stream: {Path.GetFileName(file)}. {err.Trim()}");
+    }
+
     public static async Task ExportAsync(Options o, MediaDetails details, Action<double> progress, CancellationToken ct)
     {
         var errors = Validate(o, details);
         if (errors.Count != 0) throw new InvalidOperationException(string.Join("\n", errors));
+        if (o.AudioMode is "Replace with music" or "Mix music") await EnsureStreamAsync(o.Music, "audio", ct);
+        if (o.Watermark) await EnsureStreamAsync(o.Overlay, "video", ct);
         string name = Path.GetFileNameWithoutExtension(o.Source);
         string output = Path.Combine(o.OutputFolder, $"{name}_edited_{DateTime.Now:yyyyMMdd_HHmmss_fff}_{Guid.NewGuid():N}.{o.Container}");
         if (Path.GetFullPath(output).Equals(Path.GetFullPath(o.Source), StringComparison.OrdinalIgnoreCase)) throw new IOException("Output cannot overwrite the input.");
