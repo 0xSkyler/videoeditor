@@ -127,7 +127,18 @@ public static class MediaEngine
         var chains = new List<string>();
         string vf = videoFilters.Count > 0 ? string.Join(',',videoFilters) : "null";
         chains.Add($"[0:v:0]{vf}[vbase]");
-        if (o.Watermark) chains.Add($"[vbase][{overlayIdx}:v:0]overlay=W-w-16:H-h-16:shortest=1[vout]");
+        if (o.Watermark)
+        {
+            // Keep large photographs/logos as a small corner overlay. Never upscale a small logo.
+            double cropW = o.CropW > 0 ? o.CropW : d.Width;
+            double cropH = o.CropH > 0 ? o.CropH : d.Height;
+            double finalW = o.Width > 0 ? o.Width : (o.Height > 0 ? o.Height * cropW / cropH : cropW);
+            double finalH = o.Height > 0 ? o.Height : (o.Width > 0 ? o.Width * cropH / cropW : cropH);
+            int maxW = Math.Max(16, (int)Math.Round(finalW * .25));
+            int maxH = Math.Max(16, (int)Math.Round(finalH * .25));
+            chains.Add($"[{overlayIdx}:v:0]scale=w='min(iw,{maxW})':h='min(ih,{maxH})':force_original_aspect_ratio=decrease[logo]");
+            chains.Add("[vbase][logo]overlay=W-w-16:H-h-16:shortest=1[vout]");
+        }
         else chains.Add("[vbase]null[vout]");
         args.AddRange(new[] { "-map", "[vout]" });
         if (o.AudioMode == "Keep original")
@@ -206,7 +217,24 @@ public static class MediaEngine
         }
     }
 
-    public static async Task ExportAsync(Options o, MediaDetails details, Action<double> progress, CancellationToken ct)
+    /// <summary>Returns the absolute path of the successfully encoded output.</summary>
+    public static Task CheckAudioAsync(string file, CancellationToken token = default) => EnsureStreamAsync(file, "audio", token);
+    public static Task CheckImageAsync(string file, CancellationToken token = default) => EnsureStreamAsync(file, "video", token);
+
+    /// <summary>Quick indicative CRF file-size estimate, not an output guarantee.</summary>
+    public static long EstimateBytes(Options o, MediaDetails d)
+    {
+        double videoWidth = o.Width > 0 ? o.Width : o.Height > 0 ? o.Height * (double)(o.CropW > 0 ? o.CropW : d.Width) / (o.CropH > 0 ? o.CropH : d.Height) : (o.CropW > 0 ? o.CropW : d.Width);
+        double videoHeight = o.Height > 0 ? o.Height : o.Width > 0 ? o.Width * (double)(o.CropH > 0 ? o.CropH : d.Height) / (o.CropW > 0 ? o.CropW : d.Width) : (o.CropH > 0 ? o.CropH : d.Height);
+        double fps = o.Fps > 0 ? o.Fps : d.Fps > 0 ? d.Fps : 30;
+        double duration = Math.Max(.1, (o.End > 0 ? o.End : d.Duration) - o.Start);
+        double bpp = o.Quality == "High Quality" ? .16 : o.Quality == "Small File" ? .06 : .10;
+        double videoBitsPerSecond = Math.Clamp(videoWidth * videoHeight * fps * bpp, 250000, 30000000);
+        double audioBitsPerSecond = o.AudioMode == "Mute all" ? 0 : 192000;
+        return (long)((videoBitsPerSecond + audioBitsPerSecond) * duration / 8 * 1.03);
+    }
+
+    public static async Task<string> ExportAsync(Options o, MediaDetails details, Action<double> progress, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
         var errors = Validate(o, details);
@@ -230,5 +258,8 @@ public static class MediaEngine
             }
         }
         catch { if (File.Exists(output)) File.Delete(output); throw; }
+        if (!File.Exists(output) || new FileInfo(output).Length == 0)
+            throw new IOException("FFmpeg finished but no playable output file was created.");
+        return output;
     }
 }
