@@ -24,13 +24,24 @@ jobs:
           New-Item -ItemType Directory -Force -Path StudioCut/tools | Out-Null
           Get-ChildItem -Path ffmpeg-unpacked -Filter ffmpeg.exe -Recurse | Select-Object -First 1 | Copy-Item -Destination StudioCut/tools/ffmpeg.exe
           Get-ChildItem -Path ffmpeg-unpacked -Filter ffprobe.exe -Recurse | Select-Object -First 1 | Copy-Item -Destination StudioCut/tools/ffprobe.exe
-      - name: Publish
+      - name: Make FFmpeg available to tests
+        shell: pwsh
+        run: Add-Content -Path $env:GITHUB_PATH -Value (Resolve-Path StudioCut/tools).Path
+      - name: Repeated integration and validation tests
+        run: dotnet run --project StudioCut.Tests/StudioCut.Tests.csproj -c Release
+      - name: Publish self-contained Windows application
         run: dotnet publish StudioCut/StudioCut.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o dist
       - name: Copy media tools
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist/tools | Out-Null
           Copy-Item StudioCut/tools/*.exe dist/tools/
+      - name: Test packaged executable
+        shell: pwsh
+        run: |
+          if (-not (Test-Path dist/StudioCut.exe)) { throw 'Executable missing' }
+          if (-not (Test-Path dist/tools/ffprobe.exe)) { throw 'ffprobe missing' }
+          & dist/tools/ffmpeg.exe -version | Select-Object -First 1
       - name: Package
         shell: pwsh
         run: Compress-Archive -Path dist/* -DestinationPath StudioCut-win-x64.zip
@@ -38,9 +49,9 @@ jobs:
         with:
           name: StudioCut-win-x64
           path: StudioCut-win-x64.zip
-      - name: Release on tag
+      - name: Release on version tag
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
-        run: gh release create $env:GITHUB_REF_NAME StudioCut-win-x64.zip --title "StudioCut $env:GITHUB_REF_NAME" --notes "Portable Windows x64 build."
+        run: gh release create $env:GITHUB_REF_NAME StudioCut-win-x64.zip --title "StudioCut $env:GITHUB_REF_NAME" --notes "Portable Windows x64 build. Extract ZIP and run StudioCut.exe. Includes FFmpeg/FFprobe."
