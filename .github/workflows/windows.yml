@@ -15,16 +15,6 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-      - name: Cancel superseded test runs
-        if: github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[release]')
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          foreach ($id in @(40309281517,40309692265)) {
-            try { gh api -X POST "repos/$env:GITHUB_REPOSITORY/actions/runs/$id/cancel" | Out-Null; Write-Host "Cancel requested for superseded run $id" }
-            catch { Write-Host "Could not cancel run $id; it may already be finished" }
-          }
       - name: Get FFmpeg binaries
         shell: pwsh
         run: |
