@@ -244,6 +244,10 @@ internal static class Program
         Check(!convert.IsEnabled, "unreasonable music delay is rejected before conversion");
         Ui<TextBox>(window, "MusicOffset").Text = "0.5";
         Check(convert.IsEnabled, "half-second music synchronization delay is valid");
+        Ui<TextBox>(window, "TextOverlay").Text = "Unsupported: colon";
+        Check(!convert.IsEnabled, "unsafe caption punctuation disables export");
+        Ui<TextBox>(window, "TextOverlay").Text = "Apparel PLM";
+        Check(convert.IsEnabled, "valid original text caption accepted");
         Check(convert.IsEnabled, "mixed narration/music, trim, fade and large overlay accepted");
         Check(Ui<TextBlock>(window, "EstimateText").Text.Contains("Estimated export"), "size estimate displayed");
         var first = await ExportViaUiAsync(window, dir, "edited narration and music");
