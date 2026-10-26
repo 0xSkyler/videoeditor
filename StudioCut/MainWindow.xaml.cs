@@ -5,6 +5,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 
 namespace StudioCut;
@@ -125,6 +126,7 @@ public partial class MainWindow : Window
     {
         Preview.Pause();
         Preview.Position = TimeSpan.Zero;
+        if (PosterImage.Source != null) PosterImage.Visibility = Visibility.Visible;
         UpdatePlaybackPosition();
     }
 
@@ -151,6 +153,9 @@ public partial class MainWindow : Window
         VideoInfo.Text = "";
         Preview.Stop();
         Preview.Source = null;
+        PosterImage.Source = null;
+        PosterImage.Visibility = Visibility.Collapsed;
+        PreviewNote.Text = "Preview displays original source (effects are applied only on export).";
         AudioTrack.Items.Clear();
         RightsVideo.IsChecked = false;
         RightsAudio.IsChecked = false;
@@ -171,6 +176,25 @@ public partial class MainWindow : Window
             SeekSlider.Maximum = details.Duration;
             PlaybackTime.Text = $"00:00 / {Clock(details.Duration)}";
             Preview.Source = new Uri(Path.GetFullPath(path));
+            try
+            {
+                byte[] poster = await MediaEngine.GeneratePosterAsync(path);
+                if (version != loadVersion) return;
+                using var buffer = new MemoryStream(poster);
+                var image = new BitmapImage();
+                image.BeginInit();
+                image.CacheOption = BitmapCacheOption.OnLoad;
+                image.StreamSource = buffer;
+                image.EndInit();
+                image.Freeze();
+                PosterImage.Source = image;
+                PosterImage.Visibility = Visibility.Visible;
+            }
+            catch (Exception)
+            {
+                if (version != loadVersion) return;
+                PreviewNote.Text = "Thumbnail unavailable for this codec; try Play or export directly.";
+            }
             VideoInfo.Text = $"{Path.GetFileName(path)}\n{details.Width} × {details.Height} | {details.Fps:0.##} FPS\n{Clock(details.Duration)} | {details.AudioTracks} audio track(s)\n{details.Size / 1048576.0:0.0} MB";
             Status.Text = details.AudioTracks == 0
                 ? "Video loaded without audio; Mute mode selected automatically."
@@ -287,7 +311,11 @@ public partial class MainWindow : Window
 
     private void PlayClick(object sender, RoutedEventArgs e)
     {
-        if (details != null) Preview.Play();
+        if (details != null)
+        {
+            PosterImage.Visibility = Visibility.Collapsed;
+            Preview.Play();
+        }
     }
 
     private void PauseClick(object sender, RoutedEventArgs e)
@@ -297,7 +325,8 @@ public partial class MainWindow : Window
 
     private void PreviewFailed(object sender, ExceptionRoutedEventArgs e)
     {
-        PreviewNote.Text = "Windows cannot preview this codec; FFmpeg export may still work.";
+        PreviewNote.Text = "Windows cannot play this codec. A still preview is shown; FFmpeg export may still work.";
+        if (PosterImage.Source != null) PosterImage.Visibility = Visibility.Visible;
     }
 
     private async void ConvertClick(object sender, RoutedEventArgs e)
