@@ -177,8 +177,8 @@ public static class MediaEngine
     }
     static async Task EnsureStreamAsync(string file, string kind, CancellationToken token)
     {
-        // Validate optional media before FFmpeg starts encoding. File.Exists alone
-        // cannot detect a corrupt audio file or an image with no decodable video stream.
+        token.ThrowIfCancellationRequested();
+        // Bound external probes to prevent a malformed media asset from freezing export.
         var psi = new ProcessStartInfo(Tool("ffprobe"))
         {
             RedirectStandardOutput = true, RedirectStandardError = true,
@@ -186,14 +186,24 @@ public static class MediaEngine
         };
         foreach (var arg in new[] { "-v", "error", "-select_streams", kind == "audio" ? "a:0" : "v:0", "-show_entries", "stream=codec_type", "-of", "csv=p=0", file })
             psi.ArgumentList.Add(arg);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(10));
         using var p = Process.Start(psi) ?? throw new IOException("Could not start ffprobe to check selected media.");
-        Task<string> outputTask = p.StandardOutput.ReadToEndAsync(token);
-        Task<string> errorTask = p.StandardError.ReadToEndAsync(token);
-        await p.WaitForExitAsync(token);
-        string output = await outputTask;
-        string err = await errorTask;
-        if (p.ExitCode != 0 || !output.Split('\n', StringSplitOptions.TrimEntries).Contains(kind))
-            throw new InvalidOperationException($"Selected {kind} asset is not a readable {kind} stream: {Path.GetFileName(file)}. {err.Trim()}");
+        using var registration = deadline.Token.Register(() => { try { if (!p.HasExited) p.Kill(true); } catch { } });
+        try
+        {
+            Task<string> outputTask = p.StandardOutput.ReadToEndAsync(deadline.Token);
+            Task<string> errorTask = p.StandardError.ReadToEndAsync(deadline.Token);
+            await p.WaitForExitAsync(deadline.Token);
+            string output = await outputTask;
+            string err = await errorTask;
+            if (p.ExitCode != 0 || !output.Split('\n', StringSplitOptions.TrimEntries).Contains(kind))
+                throw new InvalidOperationException($"Selected {kind} asset is not a readable {kind} stream: {Path.GetFileName(file)}. {err.Trim()}");
+        }
+        catch (OperationCanceledException) when (!token.IsCancellationRequested)
+        {
+            throw new InvalidOperationException($"Timed out verifying the selected {kind} asset: {Path.GetFileName(file)}");
+        }
     }
 
     public static async Task ExportAsync(Options o, MediaDetails details, Action<double> progress, CancellationToken ct)
