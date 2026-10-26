@@ -69,6 +69,7 @@ public partial class MainWindow : Window
         Brightness = Numeric(Brightness), Contrast = Numeric(Contrast), Saturation = Numeric(Saturation),
         Width = Int(VideoWidth), Height = Int(VideoHeight), Fps = Int(VideoFps),
         CropX = Int(CropX), CropY = Int(CropY), CropW = Int(CropW), CropH = Int(CropH),
+        Text = TextOverlay.Text,
         OriginalAudioTrack = AudioTrack.SelectedIndex < 0 ? 0 : AudioTrack.SelectedIndex
     };
 
