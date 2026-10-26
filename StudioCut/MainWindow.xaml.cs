@@ -65,7 +65,7 @@ public partial class MainWindow : Window
         AudioFade = AudioFade.IsChecked == true, VideoFade = VideoFade.IsChecked == true,
         Watermark = Watermark.IsChecked == true,
         Start = Numeric(TrimStart), End = Numeric(TrimEnd), Volume = Numeric(Volume) / 100,
-        MusicVolume = Numeric(MusicVolume) / 100, Bass = Numeric(Bass), Treble = Numeric(Treble),
+        MusicVolume = Numeric(MusicVolume) / 100, Offset = Numeric(MusicOffset), Bass = Numeric(Bass), Treble = Numeric(Treble),
         Brightness = Numeric(Brightness), Contrast = Numeric(Contrast), Saturation = Numeric(Saturation),
         Width = Int(VideoWidth), Height = Int(VideoHeight), Fps = Int(VideoFps),
         CropX = Int(CropX), CropY = Int(CropY), CropW = Int(CropW), CropH = Int(CropH),
