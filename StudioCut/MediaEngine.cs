@@ -184,7 +184,7 @@ public static class MediaEngine
             RedirectStandardOutput = true, RedirectStandardError = true,
             UseShellExecute = false, CreateNoWindow = true
         };
-        foreach (var arg in new[] { "-v", "error", "-select_streams", kind == "audio" ? "a:0" : "v:0", "-show_entries", "stream=codec_type", "-of", "csv=p=0", file })
+        foreach (var arg in new[] { "-v", "error", "-select_streams", kind == "audio" ? "a:0" : "v:0", "-read_intervals", "%+1", "-show_frames", "-show_entries", "frame=media_type", "-of", "csv=p=0", file })
             psi.ArgumentList.Add(arg);
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
         deadline.CancelAfter(TimeSpan.FromSeconds(10));
