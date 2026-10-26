@@ -34,7 +34,9 @@ jobs:
           New-Item -ItemType Directory -Force -Path StudioCut/tools | Out-Null
           Get-ChildItem -Path ffmpeg-unpacked -Filter ffmpeg.exe -Recurse | Select-Object -First 1 | Copy-Item -Destination StudioCut/tools/ffmpeg.exe
           Get-ChildItem -Path ffmpeg-unpacked -Filter ffprobe.exe -Recurse | Select-Object -First 1 | Copy-Item -Destination StudioCut/tools/ffprobe.exe
-          $license = Get-ChildItem -Path ffmpeg-unpacked -File -Recurse | Where-Object { $_.Name -match '^(LICENSE|COPYING)(\..+)?
+          $license = Get-ChildItem -Path ffmpeg-unpacked -File -Recurse | Where-Object { $_.Name -like 'LICENSE*' -or $_.Name -like 'COPYING*' } | Select-Object -First 1
+          if ($license) { Copy-Item $license.FullName -Destination StudioCut/tools/FFmpeg-LICENSE.txt }
+          Invoke-WebRequest 'https://www.gnu.org/licenses/gpl-3.0.txt' -OutFile StudioCut/tools/GPL-3.0.txt
       - name: Make FFmpeg available to tests
         shell: pwsh
         run: Add-Content -Path $env:GITHUB_PATH -Value (Resolve-Path StudioCut/tools).Path
