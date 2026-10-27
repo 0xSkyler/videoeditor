@@ -58,6 +58,7 @@ public partial class MainWindow : Window
         source = "";
         details = null;
         latestOutput = "";
+        OutputPathText.Text = "Automatically saves to: " + outputFolder;
         loading = true;
         Progress.Value = 0;
         SelectedVideoText.Text = Path.GetFileName(path);

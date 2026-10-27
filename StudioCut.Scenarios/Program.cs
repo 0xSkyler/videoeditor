@@ -293,6 +293,52 @@ internal static class Program
             return ("","Cancellation occurred after real encoder progress, not before invocation.");
         });
 
+        await ScenarioAsync("One-click preset preserves Higgsfield narration with no settings", async () => {
+            var d = await MediaEngine.ProbeAsync(audioVoice);
+            var options = SimpleConvertPlan.Create(audioVoice, directory, d);
+            Assert(options.Container == "mp4" && options.Quality == "High Quality",
+                "one-click automatically selects high-quality MP4");
+            Assert(options.NoRightsPrompt && options.PreserveSourceMetadata,
+                "one-click has no manual attestations and copies supported metadata");
+            Assert(options.AudioMode == "Keep original" && options.Contrast > 1
+                && options.Saturation > 1 && options.Fps == 0 && options.Width == 0,
+                "one-click preserves voice, FPS and resolution with a minimal automatic color adjustment");
+            string output = await MediaEngine.ExportAsync(options, d, _ => { },
+                CancellationToken.None, "converted");
+            var result = await MediaEngine.ProbeAsync(output);
+            Assert(result.AudioTracks == 1 && result.VideoCodec == "h264" && result.AudioCodec == "aac",
+                "one-click output retains original voice in H.264/AAC");
+            Assert(result.Width == d.Width && result.Height == d.Height && Math.Abs(result.Fps-d.Fps)<.25,
+                "dimensions and FPS preserved automatically");
+            Assert(Path.GetFileName(output).Contains("_converted_") && File.Exists(audioVoice),
+                "one-click makes a new recognizable file without modifying the input");
+            return (output, "Single-button output with no user parameter selection.");
+        });
+
+        await ScenarioAsync("One-click silent clip remains silent", async () => {
+            var d = await MediaEngine.ProbeAsync(silent);
+            var options = SimpleConvertPlan.Create(silent, directory, d);
+            Assert(options.AudioMode == "Mute all", "silent video mode selected automatically");
+            string output = await MediaEngine.ExportAsync(options, d, _ => { },
+                CancellationToken.None, "converted");
+            var converted = await MediaEngine.ProbeAsync(output);
+            Assert(converted.AudioTracks == 0, "simple export never invents narration or music");
+            return (output, "Silent remains silent.");
+        });
+
+        await ScenarioAsync("One-click dual-language narration keeps both audio tracks", async () => {
+            var d = await MediaEngine.ProbeAsync(dual);
+            var options = SimpleConvertPlan.Create(dual, directory, d);
+            Assert(options.KeepAllAudioTracks && d.AudioTracks==2,
+                "two audio tracks are detected without any track dropdown");
+            string output = await MediaEngine.ExportAsync(options, d, _ => { },
+                CancellationToken.None, "converted");
+            var converted = await MediaEngine.ProbeAsync(output);
+            Assert(converted.AudioTracks == 2 && converted.VideoCodec == "h264",
+                "both audio tracks preserved by automatic conversion");
+            return (output, "Multitrack source handled without input controls.");
+        });
+
         await ScenarioAsync("Original source remains byte-for-byte unchanged",async () => {
             byte[] after=SHA256.HashData(await File.ReadAllBytesAsync(audioVoice));
             Assert(after.SequenceEqual(originalHash),"original video SHA-256 remains identical");
