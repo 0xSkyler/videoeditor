@@ -43,6 +43,27 @@ jobs:
           Get-Content test-err.log
           if (-not $finished) { throw 'Tests exceeded 150-second limit; see logs above for last completed step.' }
           if ($p.ExitCode -ne 0) { throw "Regression tests failed with exit code $($p.ExitCode)" }
+      - name: Diverse video and audio use-case tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $p = Start-Process -FilePath dotnet -ArgumentList 'run --project StudioCut.Scenarios/StudioCut.Scenarios.csproj -c Release' -PassThru -NoNewWindow -RedirectStandardOutput scenario-out.log -RedirectStandardError scenario-err.log
+          $finished = $p.WaitForExit(210000)
+          if (-not $finished) { taskkill /PID $p.Id /T /F | Out-Null }
+          if (Test-Path scenario-out.log) { Get-Content scenario-out.log }
+          if (Test-Path scenario-err.log) { Get-Content scenario-err.log }
+          if (-not $finished) { throw 'Scenario testing exceeded 210 seconds' }
+          if ($p.ExitCode -ne 0) { throw "Diverse use-case tests failed with exit code $($p.ExitCode)" }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: StudioCut-diverse-scenario-evidence
+          path: |
+            scenario-results/results.json
+            scenario-results/report.md
+            scenario-out.log
+            scenario-err.log
+          if-no-files-found: warn
       - name: WPF user-journey acceptance test
         shell: pwsh
         run: |
