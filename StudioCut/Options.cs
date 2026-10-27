@@ -9,6 +9,10 @@ public sealed class Options
     public string Quality { get; set; } = "Balanced";
     public string AudioMode { get; set; } = "Keep original";
     public bool RightsVideo { get; set; }
+    // The simple offline converter does not request rights attestations; it never certifies copyright clearance.
+    public bool NoRightsPrompt { get; set; }
+    // Preserve source provenance and attribution metadata when reasonably supported by FFmpeg.
+    public bool PreserveSourceMetadata { get; set; }
     public bool RightsAudio { get; set; }
     public bool Hardware { get; set; }
     public bool Normalize { get; set; }

@@ -56,8 +56,8 @@ public static class MediaEngine
         var errors = new List<string>();
         if (!File.Exists(o.Source)) errors.Add("Select a readable source video.");
         if (media == null) errors.Add("Probe the source video before exporting.");
-        if (!o.RightsVideo) errors.Add("Confirm permission to use the video visuals.");
-        if (o.AudioMode != "Mute all" && !o.RightsAudio) errors.Add("Confirm rights to every included audio track/effect.");
+        if (!o.NoRightsPrompt && !o.RightsVideo) errors.Add("Confirm permission to use the video visuals.");
+        if (!o.NoRightsPrompt && o.AudioMode != "Mute all" && !o.RightsAudio) errors.Add("Confirm rights to every included audio track/effect.");
         if ((o.AudioMode is "Replace with music" or "Mix music") && !File.Exists(o.Music)) errors.Add("Select a valid licensed music file.");
         if (o.Watermark && !File.Exists(o.Overlay)) errors.Add("Select a valid image overlay.");
         if (o.AudioMode is not ("Mute all" or "Keep original" or "Replace with music" or "Mix music")) errors.Add("Invalid audio mode.");
@@ -203,7 +203,7 @@ public static class MediaEngine
         args.AddRange(new[] { "-pix_fmt", "yuv420p", "-t", F(duration) });
         if (o.AudioMode == "Mute all") args.Add("-an"); else args.AddRange(new[] { "-c:a", "aac", "-b:a", "192k" });
         if (o.Container == "mp4" || o.Container == "mov") args.AddRange(new[] { "-movflags", "+faststart" });
-        args.AddRange(new[] { "-map_metadata", "-1", "-map_chapters", "-1", target });
+        args.AddRange(new[] { "-map_metadata", o.PreserveSourceMetadata ? "0" : "-1", "-map_chapters", "-1", target });
         return args;
     }
     public static async Task RunAsync(string executable, IReadOnlyList<string> arguments, Action<double> onProgress, double duration, CancellationToken token)
@@ -356,7 +356,12 @@ public static class MediaEngine
         if (outputTag == "auto_reviewed")
             name = Regex.Replace(name, @"_edited_\d{8}_\d{6}_\d{3}_[0-9a-fA-F]{32}$", "", RegexOptions.IgnoreCase);
         if (name.Length > 80) name = name[..80];
-        string suffix = outputTag == "auto_reviewed" ? "auto_reviewed" : "edited";
+        string suffix = outputTag switch
+        {
+            "auto_reviewed" => "auto_reviewed",
+            "converted" => "converted",
+            _ => "edited"
+        };
         string output = Path.Combine(o.OutputFolder, $"{name}_{suffix}_{DateTime.Now:yyyyMMdd_HHmmss_fff}_{Guid.NewGuid():N}.{o.Container}");
         if (Path.GetFullPath(output).Equals(Path.GetFullPath(o.Source), StringComparison.OrdinalIgnoreCase)) throw new IOException("Output cannot overwrite the input.");
         double duration = (o.End > 0 ? o.End : details.Duration) - o.Start;

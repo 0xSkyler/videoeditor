@@ -8,6 +8,7 @@
   <ItemGroup>
     <Compile Include="../StudioCut/Options.cs" Link="Options.cs" />
     <Compile Include="../StudioCut/MediaEngine.cs" Link="MediaEngine.cs" />
+    <Compile Include="../StudioCut/SimpleConvertPlan.cs" Link="SimpleConvertPlan.cs" />
     <Compile Include="../StudioCut/AutoRightsPlanner.cs" Link="AutoRightsPlanner.cs" />
   </ItemGroup>
 </Project>
