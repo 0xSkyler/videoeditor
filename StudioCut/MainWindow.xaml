@@ -38,7 +38,7 @@
         </Style>
     </Window.Resources>
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-    <Grid Margin="28,22,28,18">
+    <Grid Margin="28,18,28,12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="12"/>
@@ -55,9 +55,9 @@
             <TextBlock Text="One video. One click. A fresh, high-quality MP4." FontSize="14" Foreground="#B8C8DD" Margin="0,4,0,0"/>
         </StackPanel>
 
-        <Border x:Name="DropZone" Grid.Row="2" Margin="0,8,0,14"
+        <Border x:Name="DropZone" Grid.Row="2" Margin="0,8,0,8"
                 Background="#121F30" BorderBrush="#415B77" BorderThickness="2"
-                CornerRadius="16" Padding="16" Height="178" AllowDrop="True">
+                CornerRadius="16" Padding="16" Height="162" AllowDrop="True">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -98,7 +98,7 @@
         <ProgressBar x:Name="Progress" Grid.Row="5" Height="9" Minimum="0" Maximum="100"
                      Background="#1E293B" Foreground="#34D399" Margin="0,0,0,10"/>
         <TextBlock x:Name="StatusText" Grid.Row="6" Text="Choose or drop a video to begin."
-                   TextWrapping="Wrap" Foreground="#C9D8E9" MinHeight="40" Margin="0,0,0,8"/>
+                   TextWrapping="Wrap" Foreground="#C9D8E9" MinHeight="32" Margin="0,0,0,4"/>
         <StackPanel Grid.Row="7" Margin="0,3,0,0">
             <TextBlock x:Name="OutputPathText" TextWrapping="Wrap" Foreground="#91E1C0"
                        FontSize="12" Text="Output: Videos\StudioCut Exports" Margin="0,0,0,8"/>
