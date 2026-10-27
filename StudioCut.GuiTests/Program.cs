@@ -26,7 +26,7 @@ internal static class Program
             try
             {
                 await RunUserAcceptanceAsync(window);
-                Console.WriteLine($"GUI ACCEPTANCE PASS: {assertions} assertions, 4 UI-triggered exports (3 normal and 1 auto).");
+                Console.WriteLine($"GUI ACCEPTANCE PASS: {assertions} assertions, 5 UI-triggered exports (3 normal and 2 auto).");
             }
             catch (Exception ex)
             {
@@ -233,7 +233,7 @@ internal static class Program
         var convert = Ui<Button>(window, "ConvertButton");
         Check(!convert.IsEnabled, "initial Start Convert disabled");
         var autoReviewButton = Ui<Button>(window, "AutoRightsButton");
-        Check(!autoReviewButton.IsEnabled, "copyright-risk auto mode requires a prior exported video");
+        Check(!autoReviewButton.IsEnabled, "copyright-risk auto mode is disabled before media import");
         await LoadAsync(window, source);
         Check(Ui<TextBlock>(window, "VideoInfo").Text.Contains("320 × 180"), "source dimensions visible");
         Check(autoReviewButton.IsEnabled, "auto mode can process an imported video without a prior export");
