@@ -40,6 +40,13 @@ Install .NET 8 SDK on Windows, and place `ffmpeg.exe` and `ffprobe.exe` in `Stud
 
 ## Changelog
 
+### 0.4.1
+- Add an explicit Higgsfield AI narration permission confirmation, so original TTS speech is retained on regular and automatic exports.
+- Auto review of a previous video only extends Higgsfield audio permission when it was exported without separately mixed music; music added outside Higgsfield still needs a separate license confirmation.
+- Keeps original AI voice and video quality as closely as H.264/AAC re-encoding allows. This is not a Content ID avoidance guarantee.
+- Reset the narration permission on each new import or newly selected external music.
+- Test original synthetic narration is preserved by automatic export without generic audio approval.
+
 ### 0.4.0
 - New post-export **Auto: Review & Fix Copyright Risks** button; also works directly on an imported source.
 - Confirmed audio is preserved; unconfirmed audio can be muted only with explicit user confirmation. Missing visual rights block the action.
