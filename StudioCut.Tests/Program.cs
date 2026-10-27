@@ -109,6 +109,48 @@ internal static class Program
             v = NewOptions(source, dir); v.Quality = "lossless"; Invalid(v, d, "unsupported quality");
             Console.WriteLine($"[PASS] {assertions} validation and probe assertions");
 
+            Console.WriteLine("[RUN] Copyright-risk auto-plan tests (not copyright clearance)");
+            var unconfirmedVisuals = NewOptions(source, dir);
+            unconfirmedVisuals.RightsVideo = false;
+            var review = AutoRightsPlanner.Create(unconfirmedVisuals, d);
+            Check(!review.CanExport && review.Blockers.Any(x => x.Contains("Visual rights")),
+                "auto mode blocks unlicensed/uncertain visuals instead of re-encoding around rights");
+
+            var confirmed = NewOptions(source, dir);
+            confirmed.Watermark = true; confirmed.Overlay = overlay;
+            confirmed.Text = "Extra caption"; confirmed.Volume = 2;
+            confirmed.CropW = 50; confirmed.CropH = 50; confirmed.Fps = 15;
+            confirmed.AudioMode = "Mix music"; confirmed.Music = music;
+            review = AutoRightsPlanner.Create(confirmed, d);
+            Check(review.CanExport && review.Export != null, "confirmed audiovisual content can be auto-reviewed");
+            Check(review.Export!.Container == "mp4" && review.Export.Quality == "High Quality",
+                "auto mode selects high-quality MP4");
+            Check(review.Export.AudioMode == "Keep original" && review.Export.RightsAudio,
+                "audio confirmed by the user is retained");
+            Check(review.Export.Width == 0 && review.Export.Height == 0 && review.Export.Fps == 0,
+                "auto mode preserves original resolution and frame rate");
+            Check(review.Export.Start == 0 && review.Export.End == 0 &&
+                review.Export.CropW == 0 && review.Export.CropH == 0 && !review.Export.Watermark &&
+                review.Export.Text.Length == 0, "auto mode avoids adding new creative distortions");
+            Check(review.Export.Source == source && confirmed.Watermark && confirmed.CropW == 50,
+                "auto plan does not mutate the user's existing editing settings");
+            Check(review.Limitations.Any(x => x.Contains("Content ID")),
+                "auto mode discloses it cannot guarantee Content ID clearance");
+            Check(!review.RemovesUnconfirmedAudio, "confirmed soundtrack requires no mute warning");
+
+            var uncertainAudio = NewOptions(source, dir);
+            uncertainAudio.RightsAudio = false;
+            review = AutoRightsPlanner.Create(uncertainAudio, d);
+            Check(review.CanExport && review.RemovesUnconfirmedAudio && review.Export?.AudioMode == "Mute all",
+                "unconfirmed audio is muted only with explicit consent at the GUI boundary");
+            Check(review.Adjustments.Any(x => x.Contains("narration")),
+                "auto plan warns that narration is also removed");
+            var silentPlan = NewOptions(noAudio, dir);
+            silentPlan.RightsAudio = false;
+            review = AutoRightsPlanner.Create(silentPlan, silent);
+            Check(review.CanExport && review.Export?.AudioMode == "Mute all" && !review.RemovesUnconfirmedAudio,
+                "silent video needs no audio-rights approval and no removal prompt");
+
             Console.WriteLine("[RUN] FFmpeg integration exports");
             await ExportVerify(NewOptions(source, dir), d, ".mp4", true);
             // Repeating an export must NOT overwrite the previous export, even in the same second.
@@ -124,6 +166,31 @@ internal static class Program
             await ExportVerify(v, silent, ".mp4", true);
             v = NewOptions(source, dir); v.Hardware = true;
             await ExportVerify(v, d, ".mp4", true);
+            Console.WriteLine("[RUN] Real rights-review automatic exports");
+            var autoPlan = AutoRightsPlanner.Create(NewOptions(source, dir), d);
+            Check(autoPlan.Export != null, "licensed source has a runnable auto plan");
+            string autoOutput = await MediaEngine.ExportAsync(autoPlan.Export!, d, _ => { },
+                CancellationToken.None, "auto_reviewed");
+            Check(File.Exists(autoOutput) && Path.GetFileName(autoOutput).Contains("_auto_reviewed_"),
+                "auto mode creates a distinct, clearly labeled output");
+            var reviewed = await MediaEngine.ProbeAsync(autoOutput);
+            Check(reviewed.AudioTracks == 1 && reviewed.Width == d.Width && reviewed.Height == d.Height &&
+                  Math.Abs(reviewed.Duration - d.Duration) < .25,
+                "auto output preserves original dimensions, duration and approved audio");
+
+            var silentAuto = NewOptions(source, dir);
+            silentAuto.RightsAudio = false;
+            var muted = AutoRightsPlanner.Create(silentAuto, d);
+            Check(muted.Export != null, "source with uncertain audio can be exported without its soundtrack");
+            string mutedOutput = await MediaEngine.ExportAsync(muted.Export!, d, _ => { },
+                CancellationToken.None, "auto_reviewed");
+            var mutedDetails = await MediaEngine.ProbeAsync(mutedOutput);
+            Check(mutedDetails.AudioTracks == 0 && mutedDetails.Width == d.Width,
+                "uncertain-audio automatic export has no sound and keeps video");
+            Check(File.Exists(source) && File.Exists(autoOutput),
+                "auto mode leaves both the source and prior auto output intact");
+            Console.WriteLine("[PASS] Two extra automatic rights-review FFmpeg exports");
+
             Console.WriteLine("[RUN] Invalid audio/image asset preflight (conversion must not begin)");
             string brokenAudio = Path.Combine(dir, "bad-music.wav");
             string brokenOverlay = Path.Combine(dir, "bad-overlay.png");
