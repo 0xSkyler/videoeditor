@@ -408,7 +408,13 @@ public static class MediaEngine
         // recursively appending its previous full timestamp and GUID.
         if (outputTag == "auto_reviewed")
             name = Regex.Replace(name, @"_edited_\d{8}_\d{6}_\d{3}_[0-9a-fA-F]{32}$", "", RegexOptions.IgnoreCase);
-        if (name.Length > 80) name = name[..80];
+        if (name.Length > 80)
+        {
+            name = name[..80];
+            // Never truncate in the middle of an emoji/supplementary Unicode character.
+            if (name.Length > 0 && char.IsHighSurrogate(name[^1]))
+                name = name[..^1];
+        }
         string suffix = outputTag switch
         {
             "auto_reviewed" => "auto_reviewed",
