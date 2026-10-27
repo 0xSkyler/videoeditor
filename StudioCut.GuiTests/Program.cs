@@ -402,6 +402,10 @@ internal static class Program
             "corrupted input blocks Convert");
         Check(Ui<TextBlock>(window,"StatusText").Text.StartsWith("Video import failed:",StringComparison.Ordinal),
             "invalid file displays a useful error");
+        string userError = Ui<TextBlock>(window,"StatusText").Text;
+        Check(userError.Contains("damaged or is not a supported video") && userError.Length < 170
+              && !userError.Contains("moov atom") && !userError.Contains("Invalid data found"),
+            "nontechnical user sees short guidance, not a raw FFmpeg trace or file path");
         Check(Ui<Button>(window,"OpenOutputButton").Visibility == Visibility.Collapsed,
             "failed import does not expose a stale export");
         SaveScreenshot(window,Path.Combine(dir,"invalid-input-simple-ui.png"));
