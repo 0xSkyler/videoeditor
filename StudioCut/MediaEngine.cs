@@ -324,7 +324,7 @@ public static class MediaEngine
         return (long)((videoBitsPerSecond + audioBitsPerSecond) * duration / 8 * 1.03);
     }
 
-    public static async Task<string> ExportAsync(Options o, MediaDetails details, Action<double> progress, CancellationToken ct)
+    public static async Task<string> ExportAsync(Options o, MediaDetails details, Action<double> progress, CancellationToken ct, string outputTag = "edited")
     {
         ct.ThrowIfCancellationRequested();
         var errors = Validate(o, details);
@@ -332,7 +332,8 @@ public static class MediaEngine
         if (o.AudioMode is "Replace with music" or "Mix music") await EnsureStreamAsync(o.Music, "audio", ct);
         if (o.Watermark) await EnsureStreamAsync(o.Overlay, "video", ct);
         string name = Path.GetFileNameWithoutExtension(o.Source);
-        string output = Path.Combine(o.OutputFolder, $"{name}_edited_{DateTime.Now:yyyyMMdd_HHmmss_fff}_{Guid.NewGuid():N}.{o.Container}");
+        string suffix = outputTag == "auto_reviewed" ? "auto_reviewed" : "edited";
+        string output = Path.Combine(o.OutputFolder, $"{name}_{suffix}_{DateTime.Now:yyyyMMdd_HHmmss_fff}_{Guid.NewGuid():N}.{o.Container}");
         if (Path.GetFullPath(output).Equals(Path.GetFullPath(o.Source), StringComparison.OrdinalIgnoreCase)) throw new IOException("Output cannot overwrite the input.");
         double duration = (o.End > 0 ? o.End : details.Duration) - o.Start;
         try
