@@ -143,6 +143,31 @@ internal static class Program
         return path;
     }
 
+
+    private static async Task<(int red, int green, int blue)> PixelAtAsync(string file, double seconds, int x, int y)
+    {
+        var psi = new ProcessStartInfo(MediaEngine.Tool("ffmpeg"))
+        {
+            UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardError = true, RedirectStandardOutput = true
+        };
+        foreach (string arg in new[] {
+            "-hide_banner", "-loglevel", "error", "-ss",
+            seconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "-i", file, "-frames:v", "1", "-vf", $"crop=2:2:{x}:{y}:exact=1,format=rgb24",
+            "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"
+        }) psi.ArgumentList.Add(arg);
+        using var p = Process.Start(psi) ?? throw new InvalidOperationException("Cannot extract frame for overlay test.");
+        using var output = new MemoryStream();
+        var errTask = p.StandardError.ReadToEndAsync();
+        await p.StandardOutput.BaseStream.CopyToAsync(output);
+        await p.WaitForExitAsync();
+        if (p.ExitCode != 0 || output.Length < 3)
+            throw new IOException("Cannot read exported frame: " + await errTask);
+        byte[] pixels = output.ToArray();
+        return (pixels[0], pixels[1], pixels[2]);
+    }
+
     private static async Task<double> FrequencyStrengthAsync(string file, double start, double seconds, double targetHz)
     {
         const int rate = 8000;
@@ -269,6 +294,9 @@ internal static class Program
         var firstDetails = await MediaEngine.ProbeAsync(first);
         Check(Math.Abs(firstDetails.Duration - 2) < .22, "exported clip matches requested 2-second trim");
         Check(firstDetails.AudioTracks == 1, "music mix retains audio");
+        var endLogo = await PixelAtAsync(first, 1.60, 280, 146);
+        Check(endLogo.red > 140 && endLogo.green < 100 && endLogo.blue < 100,
+            $"static logo must remain at the end of the exported clip (RGB={endLogo.red},{endLogo.green},{endLogo.blue})");
         double earlyMusic = await FrequencyStrengthAsync(first, .07, .24, 330);
         double lateMusic = await FrequencyStrengthAsync(first, .80, .30, 330);
         Check(lateMusic > earlyMusic * 4 + .0001,

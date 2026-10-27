@@ -114,7 +114,8 @@ public static class MediaEngine
         bool music = o.AudioMode is "Mix music" or "Replace with music";
         if (music) { args.AddRange(new[] { "-stream_loop", "-1", "-i", o.Music }); }
         int overlayIdx = music ? 2 : 1;
-        if (o.Watermark) args.AddRange(new[] { "-loop", "1", "-i", o.Overlay });
+        // A static image is decoded once. overlay=repeatlast keeps it visible to the end.
+        if (o.Watermark) args.AddRange(new[] { "-i", o.Overlay });
         var videoFilters = new List<string>();
         if (o.CropW > 0 && o.CropH > 0) videoFilters.Add($"crop={o.CropW}:{o.CropH}:{o.CropX}:{o.CropY}:exact=1");
         if (o.Width > 0 || o.Height > 0)
@@ -149,7 +150,7 @@ public static class MediaEngine
             int maxW = Math.Max(16, (int)Math.Round(finalW * .25));
             int maxH = Math.Max(16, (int)Math.Round(finalH * .25));
             chains.Add($"[{overlayIdx}:v:0]scale=w='min(iw,{maxW})':h='min(ih,{maxH})':force_original_aspect_ratio=decrease[logo]");
-            chains.Add("[vbase][logo]overlay=W-w-16:H-h-16:shortest=1[vout]");
+            chains.Add("[vbase][logo]overlay=W-w-16:H-h-16:shortest=0:repeatlast=1:eof_action=repeat[vout]");
         }
         else chains.Add("[vbase]null[vout]");
         args.AddRange(new[] { "-map", "[vout]" });
@@ -177,9 +178,9 @@ public static class MediaEngine
             chains.Add("[orig][bg]amix=inputs=2:duration=first:dropout_transition=2[aout]");
             args.AddRange(new[] { "-map", "[aout]" });
         }
-        args.AddRange(new[] { "-filter_complex", string.Join(';',chains), "-c:v", gpu ? "h264_nvenc" : "libx264" });
+        args.AddRange(new[] { "-filter_complex_threads", "2", "-filter_complex", string.Join(';',chains), "-c:v", gpu ? "h264_nvenc" : "libx264" });
         if (gpu) args.AddRange(new[] { "-cq", o.Quality == "High Quality" ? "19" : o.Quality == "Balanced" ? "23" : "28", "-preset", "p5" });
-        else args.AddRange(new[] { "-crf", o.Quality == "High Quality" ? "18" : o.Quality == "Balanced" ? "21" : "27", "-preset", "medium" });
+        else args.AddRange(new[] { "-crf", o.Quality == "High Quality" ? "18" : o.Quality == "Balanced" ? "21" : "27", "-preset", "medium", "-threads", "2" });
         args.AddRange(new[] { "-pix_fmt", "yuv420p", "-t", F(duration) });
         if (o.AudioMode == "Mute all") args.Add("-an"); else args.AddRange(new[] { "-c:a", "aac", "-b:a", "192k" });
         if (o.Container == "mp4" || o.Container == "mov") args.AddRange(new[] { "-movflags", "+faststart" });

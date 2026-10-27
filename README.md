@@ -47,3 +47,7 @@ See `THIRD_PARTY_NOTICES.md` for the licensed FFmpeg components included in Wind
 - Each newly imported video resets trim and crop values to avoid hidden out-of-range settings; rights approvals still must be re-confirmed.
 - Exports are re-probed before the UI displays success. Failed or invalid outputs are deleted when possible.
 - The included Windows GUI acceptance suite tests actual WPF buttons, playback poster generation, edits, and export files. It does not replace human-operated mouse/keyboard checks or hardware GPU benchmarks.
+
+## Performance optimization
+
+Static logo overlays are now decoded once and held by FFmpeg for the duration of the video instead of looping the image every frame. This avoids repeated decoding of large images. For memory-sensitive editing, the CPU H.264 encoder and complex filter graph use two FFmpeg worker threads. A representative 12-second, 960×540 headless Linux FFmpeg comparison with a 2400×1400 static logo changed from 6.78s/400.3MB peak RSS to 1.57s/209.4MB. These are isolated benchmark results, not guarantees on a Windows user's machine.
