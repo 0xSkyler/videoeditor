@@ -134,4 +134,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          gh release create v0.4.1 StudioCut-win-x64.zip --target $env:GITHUB_SHA --title 'StudioCut v0.4.1' --notes 'Higgsfield AI narration workflow: user-confirmed generated voice is retained rather than automatically muted. Added rights-specific confirmation and WPF tests, while keeping previous auto-export and copyright-risk safeguards. Still cannot verify usage rights or guarantee Content ID clearance. Includes FFmpeg/FFprobe and license notices. Extract ZIP and run StudioCut.exe.'
+          gh release create v0.4.2 StudioCut-win-x64.zip --target $env:GITHUB_SHA --title 'StudioCut v0.4.2' --notes 'Windows x64 portable editor tested across 14 additional synthetic media scenarios (voice, mixed music, mute, portrait, landscape 29.97fps, two audio languages, legacy AVI, invalid media, cancellation and repeat exports), plus Windows WPF GUI and integration tests. Retains all confirmed audio tracks. Does NOT remove copyright or guarantee Content ID clearance. Bundle includes FFmpeg/FFprobe and third-party notices. Extract ZIP and run StudioCut.exe.'

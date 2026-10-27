@@ -40,6 +40,14 @@ Install .NET 8 SDK on Windows, and place `ffmpeg.exe` and `ffprobe.exe` in `Stud
 
 ## Changelog
 
+### 0.4.2
+- Tested 14 distinct video/audio scenarios (94 assertions) on GitHub-hosted Windows, all passing. Test evidence includes JSON, per-case timings, file sizes and logs.
+- Preserve all individually confirmed source audio tracks in Auto mode, including alternative narration languages, instead of accidentally dropping all but track 1.
+- Retain known Higgsfield-style synthetic narration without arbitrary fingerprint changes, and ensure permission for generated narration does not automatically authorize third-party music added later.
+- Verify a real in-progress cancellation removes any partially encoded MP4 while leaving the input intact.
+- Added dedicated cross-format cases: vertical 9:16, 1280x720 at 29.97 FPS, AVI MPEG-4/PCM to H.264/AAC, audio-only and invalid inputs, silent files, missing rights, mixed-audio soundtrack and repeated output uniqueness.
+- Windows CI additionally verifies 110 engine assertions, 95 automated WPF GUI assertions and portable EXE startup. Not a substitute for real 4K or physical GPU stress tests.
+
 ### 0.4.1
 - Add an explicit Higgsfield AI narration permission confirmation, so original TTS speech is retained on regular and automatic exports.
 - Auto review of a previous video only extends Higgsfield audio permission when it was exported without separately mixed music; music added outside Higgsfield still needs a separate license confirmation.
