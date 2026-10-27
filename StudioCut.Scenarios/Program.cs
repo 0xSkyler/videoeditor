@@ -117,7 +117,7 @@ internal static class Program
             RedirectStandardError = true, RedirectStandardOutput = true,
             UseShellExecute = false, CreateNoWindow = true
         };
-        foreach (string a in new[] {"-v","error","-ss",".4","-i",file,"-t",".65",
+        foreach (string a in new[] {"-v","error","-ss","0.4","-i",file,"-t","0.65",
             "-vn","-ac","1","-ar","8000","-f","f32le","pipe:1"}) psi.ArgumentList.Add(a);
         using var proc = Process.Start(psi) ?? throw new IOException("Cannot start audio analyzer");
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(12));
