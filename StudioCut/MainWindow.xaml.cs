@@ -45,6 +45,26 @@ public partial class MainWindow : Window
             Visibility.Visible : Visibility.Collapsed;
     }
 
+    /// <summary>Keep the one-click UI readable; FFmpeg raw stderr is not an actionable end-user message.</summary>
+    private static string FriendlyError(Exception ex, bool importing)
+    {
+        if (ex is UnauthorizedAccessException)
+            return "Windows denied access. Check the file or output-folder permissions.";
+        if (ex is FileNotFoundException)
+            return "The selected video is missing. Choose it again.";
+        if (ex is IOException && ex.Message.Contains("timed out", StringComparison.OrdinalIgnoreCase))
+            return "Reading this video took too long. Try a local copy.";
+        if (ex.Message.Contains("Insufficient free disk", StringComparison.OrdinalIgnoreCase))
+            return "Not enough free disk space. Free space in Videos and try again.";
+        if (importing)
+            return "This file is damaged or is not a supported video. Choose a playable MP4, MOV, MKV or AVI.";
+        if (ex is IOException && (ex.Message.Contains("FFmpeg", StringComparison.OrdinalIgnoreCase)
+            || ex.Message.Contains("ffprobe", StringComparison.OrdinalIgnoreCase)))
+            return "The video could not be encoded. Check the source file and available disk space.";
+        string message = ex.Message;
+        return message.Length > 190 ? message[..190] + "..." : message;
+    }
+
     private static string Duration(double seconds)
     {
         if (double.IsNaN(seconds) || seconds < 0) return "00:00";
@@ -89,7 +109,7 @@ public partial class MainWindow : Window
             if (generation != importVersion) return;
             DropTitle.Text = "Could not read video";
             SelectedDetailsText.Text = "Choose a supported video file.";
-            StatusText.Text = "Video import failed: " + ex.Message;
+            StatusText.Text = "Video import failed: " + FriendlyError(ex, importing: true);
         }
         finally
         {
@@ -202,7 +222,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            StatusText.Text = "Cannot convert: " + ex.Message;
+            StatusText.Text = "Cannot convert: " + FriendlyError(ex, importing: false);
             return;
         }
 
@@ -241,7 +261,7 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             finished = true;
-            StatusText.Text = "Conversion failed: " + ex.Message;
+            StatusText.Text = "Conversion failed: " + FriendlyError(ex, importing: false);
         }
         finally
         {
