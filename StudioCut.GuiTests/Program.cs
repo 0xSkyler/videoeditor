@@ -13,7 +13,7 @@ using StudioCut;
 internal static class Program
 {
     private static int assertions;
-    private static readonly List<object> measurements = new();
+    private static readonly List<object> observations = new();
 
     [STAThread]
     private static int Main()
@@ -25,441 +25,239 @@ internal static class Program
         {
             try
             {
-                await RunUserAcceptanceAsync(window);
-                Console.WriteLine($"GUI ACCEPTANCE PASS: {assertions} assertions, 6 UI-triggered exports (3 normal and 3 auto).");
+                await TestUserWorkflowAsync(window);
+                Console.WriteLine($"SIMPLIFIED GUI RESULT: PASS; {assertions} assertions, 5 video exports");
             }
-            catch (Exception ex)
+            catch (Exception e)
             {
                 result = 1;
-                Console.Error.WriteLine("GUI ACCEPTANCE FAILED: " + ex);
+                Console.Error.WriteLine("SIMPLIFIED GUI RESULT: FAIL: " + e);
             }
-            finally
-            {
-                app.Dispatcher.BeginInvoke(() => app.Shutdown());
-            }
+            finally { app.Dispatcher.BeginInvoke(() => app.Shutdown()); }
         };
         window.Show();
         app.Run(window);
         return result;
     }
 
-    private static void Check(bool condition, string description)
-    {
-        if (!condition) throw new Exception("FAILED: " + description);
-        assertions++;
-        Console.WriteLine("[GUI PASS] " + description);
-    }
+    private static T Ui<T>(MainWindow window, string id) where T : FrameworkElement =>
+        window.FindName(id) as T ?? throw new InvalidOperationException($"Missing UI element: {id}");
 
-    private static T Ui<T>(MainWindow window, string name) where T : FrameworkElement =>
-        window.FindName(name) as T ?? throw new InvalidOperationException("Missing UI element: " + name);
+    private static void Check(bool valid, string message)
+    {
+        if (!valid) throw new Exception("Assertion failed: " + message);
+        assertions++;
+        Console.WriteLine("[GUI PASS] " + message);
+    }
 
     private static void Click(Button button) =>
         button.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, button));
 
-    private static void PrivateField(MainWindow window, string name, object value)
+    private static async Task LoadAsync(MainWindow window, string path)
     {
-        var field = typeof(MainWindow).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)
-            ?? throw new Exception("Missing field " + name);
-        field.SetValue(window, value);
+        var loader = typeof(MainWindow).GetMethod("LoadVideoAsync", BindingFlags.NonPublic | BindingFlags.Instance)
+            ?? throw new Exception("Missing drag-and-drop/select import handler");
+        await ((Task?)loader.Invoke(window, new object[] { path }) ?? throw new Exception("Import returned no Task"));
     }
 
-    private static async Task LoadAsync(MainWindow window, string file)
-    {
-        var method = typeof(MainWindow).GetMethod("LoadVideo", BindingFlags.Instance | BindingFlags.NonPublic)
-            ?? throw new Exception("Missing LoadVideo");
-        await ((Task?)method.Invoke(window, new object[] { file }) ?? throw new Exception("Load failed"));
-    }
-
-    private static async Task ExecAsync(params string[] arguments)
+    private static async Task FFmpegAsync(params string[] args)
     {
         var psi = new ProcessStartInfo(MediaEngine.Tool("ffmpeg"))
         {
             UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardError = true, RedirectStandardOutput = true
         };
-        foreach (var item in arguments) psi.ArgumentList.Add(item);
-        using var proc = Process.Start(psi) ?? throw new Exception("Failed to start FFmpeg fixture.");
-        var stdErrTask = proc.StandardError.ReadToEndAsync();
-        var stdOutTask = proc.StandardOutput.ReadToEndAsync();
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(40));
-        await proc.WaitForExitAsync(timeout.Token);
-        string stderr = await stdErrTask;
-        await stdOutTask;
-        if (proc.ExitCode != 0) throw new Exception("Fixture FFmpeg failed: " + stderr);
+        foreach (string arg in new[] { "-hide_banner", "-loglevel", "error", "-y" }.Concat(args))
+            psi.ArgumentList.Add(arg);
+        using var proc = Process.Start(psi) ?? throw new Exception("Cannot start FFmpeg");
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(40));
+        using var kill = deadline.Token.Register(() => { try { if (!proc.HasExited) proc.Kill(true); } catch { } });
+        Task<string> stderr = proc.StandardError.ReadToEndAsync();
+        Task<string> stdout = proc.StandardOutput.ReadToEndAsync();
+        await proc.WaitForExitAsync(deadline.Token);
+        string error = await stderr;
+        await stdout;
+        if (proc.ExitCode != 0) throw new Exception("Fixture setup failed: " + error);
     }
 
-    private static async Task MakeSamplesAsync(string dir)
+    private static async Task<string[]> MakeMediaAsync(string dir)
     {
-        await ExecAsync("-hide_banner", "-loglevel", "error", "-y",
-            "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24",
-            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100",
-            "-t", "4", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
-            "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k",
-            Path.Combine(dir, "sample.mp4"));
-        await ExecAsync("-hide_banner", "-loglevel", "error", "-y",
-            "-f", "lavfi", "-i", "sine=frequency=330:sample_rate=44100",
-            "-t", "5", "-c:a", "pcm_s16le", Path.Combine(dir, "music.wav"));
-        await ExecAsync("-hide_banner", "-loglevel", "error", "-y",
-            "-f", "lavfi", "-i", "color=c=red:size=1280x720",
-            "-frames:v", "1", "-update", "1", Path.Combine(dir, "large-overlay.png"));
-        await ExecAsync("-hide_banner", "-loglevel", "error", "-y", "-i",
-            Path.Combine(dir, "sample.mp4"), "-map", "0:v:0", "-c:v", "copy", "-an",
-            Path.Combine(dir, "silent.mp4"));
+        string voiced = Path.Combine(dir, "Higgsfield narrated sample.mp4");
+        string silent = Path.Combine(dir, "silent.mp4");
+        string portrait = Path.Combine(dir, "portrait.mp4");
+        string multiple = Path.Combine(dir, "two voice tracks.mkv");
+        await FFmpegAsync("-f","lavfi","-i","testsrc2=size=320x180:rate=24",
+            "-f","lavfi","-i","sine=frequency=440:sample_rate=44100",
+            "-t","2.8","-c:v","libx264","-preset","ultrafast","-crf","24",
+            "-pix_fmt","yuv420p","-c:a","aac","-b:a","96k",voiced);
+        await FFmpegAsync("-i",voiced,"-an","-c:v","copy",silent);
+        await FFmpegAsync("-f","lavfi","-i","testsrc2=size=240x426:rate=25",
+            "-f","lavfi","-i","sine=frequency=550:sample_rate=44100",
+            "-t","1.6","-c:v","libx264","-preset","ultrafast","-crf","25",
+            "-pix_fmt","yuv420p","-c:a","aac","-b:a","96k",portrait);
+        await FFmpegAsync("-i",voiced,"-f","lavfi","-i","sine=frequency=660:sample_rate=44100",
+            "-map","0:v:0","-map","0:a:0","-map","1:a:0","-t","2.8",
+            "-c:v","copy","-c:a","aac",multiple);
+        return new[] { voiced, silent, portrait, multiple };
     }
 
-    private static async Task<string> ExportViaUiAsync(MainWindow window, string dir, string scenario)
+    private static int CountManualControls(DependencyObject parent)
     {
-        var button = Ui<Button>(window, "ConvertButton");
-        Check(button.IsEnabled, scenario + ": Start Convert enabled when settings valid");
-        var before = Directory.GetFiles(dir, "*_edited_*.mp4").ToHashSet();
-        var sw = Stopwatch.StartNew();
-        Click(button);
-        bool completed = false;
-        string status = "";
-        for (int i = 0; i < 250; i++)
+        int count = 0;
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
         {
-            status = Ui<TextBlock>(window, "Status").Text;
-            if (status.StartsWith("Completed.", StringComparison.Ordinal)) { completed = true; break; }
-            if (status is "Export failed" or "Cancelled") break;
-            await Task.Delay(150);
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is TextBox or CheckBox or ComboBox or Slider or RadioButton)
+                count++;
+            count += CountManualControls(child);
         }
-        sw.Stop();
-        Check(completed, scenario + ": UI reports export completion (status: " + status + ")");
-        var files = Directory.GetFiles(dir, "*_edited_*.mp4").Where(x => !before.Contains(x)).ToArray();
-        Check(files.Length == 1, scenario + ": exactly one fresh output created");
-        string path = files[0];
-        Check(new FileInfo(path).Length > 4000, scenario + ": output nonempty");
-        Check(Ui<Button>(window, "OpenExportButton").IsEnabled, scenario + ": can open exported video");
-        Check(Ui<TextBlock>(window, "OutputInfo").Text.Contains(Path.GetFileName(path)), scenario + ": output path displayed");
-        Check(Ui<ProgressBar>(window, "Progress").Value >= 99.0, scenario + ": progress reaches completion");
-        var probed = await MediaEngine.ProbeAsync(path);
-        Check(probed.Width == 320 && probed.Height == 180, scenario + ": output resolution preserved");
-        measurements.Add(new
+        return count;
+    }
+
+    private static async Task<string> ConvertViaButtonAsync(MainWindow window, string scenario, MediaDetails sourceDetails)
+    {
+        var convert = Ui<Button>(window, "ConvertButton");
+        var cancel = Ui<Button>(window, "CancelButton");
+        Check(convert.IsEnabled, scenario + ": Convert is enabled with a valid imported file");
+        Check(cancel.Visibility == Visibility.Collapsed, scenario + ": Cancel hidden until conversion");
+        var watch = Stopwatch.StartNew();
+        Click(convert);
+        bool finished = false;
+        string status = "";
+        for (int i = 0; i < 400; i++)
         {
-            scenario, seconds = Math.Round(sw.Elapsed.TotalSeconds, 3), output_bytes = new FileInfo(path).Length,
-            duration = Math.Round(probed.Duration, 2), video_width = probed.Width,
-            video_height = probed.Height, audio_tracks = probed.AudioTracks
+            status = Ui<TextBlock>(window, "StatusText").Text;
+            if (status.StartsWith("Conversion complete.", StringComparison.Ordinal))
+            { finished = true; break; }
+            if (status.StartsWith("Conversion failed:", StringComparison.Ordinal) ||
+                status.StartsWith("Cannot convert:", StringComparison.Ordinal) ||
+                status.StartsWith("Conversion cancelled.", StringComparison.Ordinal))
+                break;
+            await Task.Delay(100);
+        }
+        watch.Stop();
+        Check(finished, scenario + ": end-to-end conversion succeeds; " + status);
+        string pathText = Ui<TextBlock>(window, "OutputPathText").Text;
+        Check(pathText.StartsWith("Saved: ", StringComparison.Ordinal), scenario + ": final output path is shown");
+        string path = pathText["Saved: ".Length..];
+        Check(File.Exists(path) && new FileInfo(path).Length > 1000, scenario + ": new MP4 exists");
+        Check(Path.GetExtension(path).Equals(".mp4", StringComparison.OrdinalIgnoreCase),
+            scenario + ": one-click output is always MP4");
+        Check(Path.GetFileName(path).Contains("_converted_"), scenario + ": filename distinguishes new export");
+        Check(Ui<Button>(window, "OpenOutputButton").Visibility == Visibility.Visible,
+            scenario + ": Open output folder appears after success");
+        Check(Ui<ProgressBar>(window, "Progress").Value >= 99,
+            scenario + ": progress displays completed state");
+        Check(cancel.Visibility == Visibility.Collapsed && convert.IsEnabled,
+            scenario + ": user can convert again without restarting");
+        var result = await MediaEngine.ProbeAsync(path);
+        Check(result.VideoCodec == "h264" && (result.AudioTracks == 0 || result.AudioCodec == "aac"),
+            scenario + ": codecs standardized to H.264 and AAC");
+        Check(result.AudioTracks == sourceDetails.AudioTracks,
+            scenario + ": all original audio tracks retained");
+        Check(result.Width == sourceDetails.Width && result.Height == sourceDetails.Height,
+            scenario + ": original frame dimensions preserved");
+        Check(Math.Abs(result.Fps - sourceDetails.Fps) < .3,
+            scenario + ": source frame rate preserved");
+        Check(Math.Abs(result.Duration - sourceDetails.Duration) < .4,
+            scenario + ": duration preserved");
+        observations.Add(new {
+            scenario, elapsed_seconds = Math.Round(watch.Elapsed.TotalSeconds, 2),
+            output_bytes = new FileInfo(path).Length,
+            width = result.Width, height = result.Height,
+            fps = Math.Round(result.Fps, 2), audio_tracks = result.AudioTracks
         });
+        Console.WriteLine($"[UI CONVERSION] {scenario} in {watch.Elapsed.TotalSeconds:F2}s: {path}");
         return path;
     }
 
-
-    private static async Task<(int red, int green, int blue)> PixelAtAsync(string file, double seconds, int x, int y)
-    {
-        var psi = new ProcessStartInfo(MediaEngine.Tool("ffmpeg"))
-        {
-            UseShellExecute = false, CreateNoWindow = true,
-            RedirectStandardError = true, RedirectStandardOutput = true
-        };
-        foreach (string arg in new[] {
-            "-hide_banner", "-loglevel", "error", "-ss",
-            seconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            "-i", file, "-frames:v", "1", "-vf", $"crop=2:2:{x}:{y}:exact=1,format=rgb24",
-            "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"
-        }) psi.ArgumentList.Add(arg);
-        using var p = Process.Start(psi) ?? throw new InvalidOperationException("Cannot extract frame for overlay test.");
-        using var output = new MemoryStream();
-        var errTask = p.StandardError.ReadToEndAsync();
-        await p.StandardOutput.BaseStream.CopyToAsync(output);
-        await p.WaitForExitAsync();
-        if (p.ExitCode != 0 || output.Length < 3)
-            throw new IOException("Cannot read exported frame: " + await errTask);
-        byte[] pixels = output.ToArray();
-        return (pixels[0], pixels[1], pixels[2]);
-    }
-
-    private static async Task<double> FrequencyStrengthAsync(string file, double start, double seconds, double targetHz)
-    {
-        const int rate = 8000;
-        var psi = new ProcessStartInfo(MediaEngine.Tool("ffmpeg"))
-        {
-            UseShellExecute = false, CreateNoWindow = true,
-            RedirectStandardError = true, RedirectStandardOutput = true
-        };
-        foreach (string arg in new[]
-        {
-            "-hide_banner", "-loglevel", "error", "-ss", start.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            "-i", file, "-t", seconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            "-vn", "-ac", "1", "-ar", "8000", "-f", "f32le", "pipe:1"
-        }) psi.ArgumentList.Add(arg);
-        using var process = Process.Start(psi) ?? throw new Exception("Could not decode exported audio");
-        using var memory = new MemoryStream();
-        var errorsTask = process.StandardError.ReadToEndAsync();
-        await process.StandardOutput.BaseStream.CopyToAsync(memory);
-        await process.WaitForExitAsync();
-        if (process.ExitCode != 0) throw new Exception("Cannot decode audio: " + await errorsTask);
-        byte[] data = memory.ToArray();
-        int count = data.Length / sizeof(float);
-        if (count < 1000) throw new Exception("Exported audio window is too short");
-        double re = 0, im = 0;
-        for (int n = 0; n < count; n++)
-        {
-            double sample = BitConverter.ToSingle(data, n * 4);
-            double phase = 2 * Math.PI * targetHz * n / rate;
-            re += sample * Math.Cos(phase);
-            im -= sample * Math.Sin(phase);
-        }
-        return Math.Sqrt(re * re + im * im) / count;
-    }
-
-    private static void Screenshot(MainWindow window, string path)
+    private static void SaveScreenshot(MainWindow window, string path)
     {
         try
         {
             window.UpdateLayout();
-            int width = Math.Max(800, (int)window.ActualWidth);
-            int height = Math.Max(620, (int)window.ActualHeight);
-            var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
-            bitmap.Render(window);
+            var bmp = new RenderTargetBitmap((int)window.ActualWidth, (int)window.ActualHeight,
+                96, 96, PixelFormats.Pbgra32);
+            bmp.Render(window);
             var encoder = new PngBitmapEncoder();
-            encoder.Frames.Add(BitmapFrame.Create(bitmap));
-            using var stream = File.Create(path);
-            encoder.Save(stream);
-            Console.WriteLine("[GUI] screenshot: " + path);
+            encoder.Frames.Add(BitmapFrame.Create(bmp));
+            using var output = File.Create(path);
+            encoder.Save(output);
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine("[GUI] screenshot unavailable on Windows runner: " + ex.Message);
-        }
+        catch (Exception e) { Console.WriteLine("Screenshot unavailable: " + e.Message); }
     }
 
-    private static async Task RunUserAcceptanceAsync(MainWindow window)
+    private static async Task TestUserWorkflowAsync(MainWindow window)
     {
-        var dir = Path.GetFullPath("ux-results");
+        var dir = Path.GetFullPath("ux-results/simple-ui");
         Directory.CreateDirectory(dir);
-        await MakeSamplesAsync(dir);
-        string source = Path.Combine(dir, "sample.mp4");
-        string originalHash = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(source)));
-        var convert = Ui<Button>(window, "ConvertButton");
-        Check(!convert.IsEnabled, "initial Start Convert disabled");
-        var autoReviewButton = Ui<Button>(window, "AutoRightsButton");
-        Check(!autoReviewButton.IsEnabled, "copyright-risk auto mode is disabled before media import");
-        await LoadAsync(window, source);
-        Check(Ui<TextBlock>(window, "VideoInfo").Text.Contains("320 × 180"), "source dimensions visible");
-        Check(autoReviewButton.IsEnabled, "auto mode can process an imported video without a prior export");
-        Check(Ui<Image>(window, "PosterImage").Source is BitmapSource poster && poster.PixelWidth > 0, "first-frame poster generated from actual source");
-        Check(Ui<Image>(window, "PosterImage").Visibility == Visibility.Visible, "preview poster visible before Play");
-        Check(Ui<CheckBox>(window, "Normalize").Foreground is SolidColorBrush textBrush
-            && textBrush.Color.R > 180 && textBrush.Color.G > 180 && textBrush.Color.B > 180,
-            "dark-theme checkbox text has light foreground");
-        Check(Ui<ComboBox>(window, "AudioMode").SelectedIndex == 0, "normal source defaults to keep audio");
-        var higgsfieldVoice = Ui<CheckBox>(window, "HiggsfieldVoiceConfirmed");
-        Check(higgsfieldVoice.IsChecked != true, "AI narration rights are not presumed for an imported video");
-        Check(!convert.IsEnabled, "copyright confirmations required");
-        Ui<CheckBox>(window, "RightsVideo").IsChecked = true;
-        Check(!convert.IsEnabled, "visual rights alone do not approve an audio soundtrack");
-        higgsfieldVoice.IsChecked = true;
-        Check(convert.IsEnabled && Ui<CheckBox>(window, "RightsAudio").IsChecked != true,
-            "explicit Higgsfield narration permission preserves voice in Keep original mode");
-        higgsfieldVoice.IsChecked = false;
-        Ui<CheckBox>(window, "RightsAudio").IsChecked = true;
-        Check(convert.IsEnabled, "valid source and rights enable conversion");
-        // Higgsfield narration permission does not cover third-party music added later.
-        PrivateField(window, "music", Path.Combine(dir, "music.wav"));
-        Ui<ComboBox>(window, "AudioMode").SelectedIndex = 3;
-        Ui<CheckBox>(window, "RightsAudio").IsChecked = false;
-        higgsfieldVoice.IsChecked = true;
-        Check(!convert.IsEnabled,
-            "Higgsfield voice approval alone cannot authorize separately mixed external music");
-        Ui<CheckBox>(window, "RightsAudio").IsChecked = true;
-        Check(convert.IsEnabled, "licensed external music allows a normal mixed soundtrack export");
-        Ui<ComboBox>(window, "AudioMode").SelectedIndex = 0;
-        higgsfieldVoice.IsChecked = false;
-        Check(convert.IsEnabled, "normal export works after returning to licensed original soundtrack");
-        Ui<TextBox>(window, "TrimEnd").Text = "bad";
-        Check(!convert.IsEnabled, "invalid trim disables conversion");
-        Ui<TextBox>(window, "TrimEnd").Text = "2.5";
-        Ui<TextBox>(window, "TrimStart").Text = "0.5";
-        Ui<Slider>(window, "SeekSlider").Value = 1.25;
-        Click(Ui<Button>(window, "SetStartButton"));
-        Check(Ui<TextBox>(window, "TrimStart").Text == "1.25", "playhead sets trim start");
-        Ui<TextBox>(window, "TrimStart").Text = "0.5";
+        string[] media = await MakeMediaAsync(dir);
 
-        // This simulates the chosen file after the native Windows OpenFileDialog.
-        await MediaEngine.CheckAudioAsync(Path.Combine(dir, "music.wav"));
-        await MediaEngine.CheckImageAsync(Path.Combine(dir, "large-overlay.png"));
-        PrivateField(window, "music", Path.Combine(dir, "music.wav"));
-        PrivateField(window, "overlay", Path.Combine(dir, "large-overlay.png"));
-        PrivateField(window, "folder", dir);
-        Ui<TextBlock>(window, "FolderName").Text = dir;
-        Ui<ComboBox>(window, "AudioMode").SelectedIndex = 3;
-        Ui<CheckBox>(window, "Watermark").IsChecked = true;
-        Ui<CheckBox>(window, "VideoFade").IsChecked = true;
-        Ui<TextBox>(window, "Brightness").Text = "0.05";
-        Ui<TextBox>(window, "MusicVolume").Text = "25";
-        Ui<TextBox>(window, "MusicOffset").Text = "75";
-        Check(!convert.IsEnabled, "unreasonable music delay is rejected before conversion");
-        Ui<TextBox>(window, "MusicOffset").Text = "0.5";
-        Check(convert.IsEnabled, "half-second music synchronization delay is valid");
-        Ui<TextBox>(window, "TextOverlay").Text = "Unsupported: colon";
-        Check(!convert.IsEnabled, "unsafe caption punctuation disables export");
-        Ui<TextBox>(window, "TextOverlay").Text = "Apparel PLM";
-        Check(convert.IsEnabled, "valid original text caption accepted");
-        Check(convert.IsEnabled, "mixed narration/music, trim, fade and large overlay accepted");
-        // Run the real on-demand effect preview through the WPF button and FFmpeg.
-        var beforePoster = (System.Windows.Media.Imaging.BitmapSource?)Ui<Image>(window, "PosterImage").Source;
-        Check(Ui<Button>(window, "PreviewEditedButton").IsEnabled, "edited-frame preview enabled with imported media");
-        Click(Ui<Button>(window, "PreviewEditedButton"));
-        bool editedPosterReady = false;
-        for (int n = 0; n < 200; n++)
-        {
-            if (Ui<TextBlock>(window, "PreviewNote").Text.StartsWith("Edited still preview", StringComparison.Ordinal))
-            { editedPosterReady = true; break; }
-            await Task.Delay(100);
-        }
-        Check(editedPosterReady, "edited-frame button renders selected effects");
-        var afterPoster = (System.Windows.Media.Imaging.BitmapSource?)Ui<Image>(window, "PosterImage").Source;
-        Check(afterPoster is not null && !ReferenceEquals(beforePoster, afterPoster), "edited poster replaces original still");
-        Check(Ui<Image>(window, "PosterImage").Visibility == Visibility.Visible, "edited poster appears in preview pane");
-        Check(Ui<TextBlock>(window, "EstimateText").Text.Contains("Estimated export"), "size estimate displayed");
-        var first = await ExportViaUiAsync(window, dir, "edited narration and music");
-        var firstDetails = await MediaEngine.ProbeAsync(first);
-        Check(Math.Abs(firstDetails.Duration - 2) < .22, "exported clip matches requested 2-second trim");
-        Check(firstDetails.AudioTracks == 1, "music mix retains audio");
-        var endLogo = await PixelAtAsync(first, 1.60, 280, 146);
-        Check(endLogo.red > 140 && endLogo.green < 100 && endLogo.blue < 100,
-            $"static logo must remain at the end of the exported clip (RGB={endLogo.red},{endLogo.green},{endLogo.blue})");
-        double earlyMusic = await FrequencyStrengthAsync(first, .07, .24, 330);
-        double lateMusic = await FrequencyStrengthAsync(first, .80, .30, 330);
-        Check(lateMusic > earlyMusic * 4 + .0001,
-            $"music actually starts after the configured delay (initial={earlyMusic:0.000000}, late={lateMusic:0.000000})");
+        Check(!Ui<Button>(window, "ConvertButton").IsEnabled,
+            "initial Convert is disabled without any selected video");
+        Check(Ui<Button>(window, "ChooseVideoButton").IsEnabled,
+            "Choose video is immediately available");
+        Check(window.AllowDrop && Ui<Border>(window,"DropZone").AllowDrop,
+            "video file drag-and-drop is enabled");
+        Check(CountManualControls(window) == 0,
+            "no text inputs, dropdowns, sliders, checkboxes or advanced manual option controls");
+        Check(Ui<Button>(window, "OpenOutputButton").Visibility == Visibility.Collapsed,
+            "output-folder action hidden before first success");
+        Check(Ui<TextBlock>(window, "OutputPathText").Text.Contains("StudioCut Exports"),
+            "automatic output folder is clearly identified");
+        SaveScreenshot(window, Path.Combine(dir,"initial-simple-ui.png"));
 
-        Screenshot(window, Path.Combine(dir, "wpf-user-workflow.png"));
-        var second = await ExportViaUiAsync(window, dir, "repeat export without overwrite");
-        Check(first != second, "two consecutive exports have unique filenames");
-        Check(autoReviewButton.IsEnabled, "automated rights review becomes available after exporting");
-        Ui<CheckBox>(window, "RightsAudio").IsChecked = false;
-        Check(autoReviewButton.IsEnabled && !convert.IsEnabled,
-            "auto review stays available to mute uncertain audio while normal export blocks");
-        Ui<CheckBox>(window, "RightsAudio").IsChecked = true;
-        var beforeAuto = Directory.GetFiles(dir, "*_auto_reviewed_*.mp4").ToHashSet();
-        var autoTimer = Stopwatch.StartNew();
-        Click(autoReviewButton);
-        bool autoComplete = false;
-        for (int n = 0; n < 250; n++)
-        {
-            string current = Ui<TextBlock>(window, "Status").Text;
-            if (current.StartsWith("Auto-review copy completed.", StringComparison.Ordinal))
-            { autoComplete = true; break; }
-            if (current is "Automatic review failed" or "Cancelled. No incomplete output was kept.")
-                break;
-            await Task.Delay(150);
-        }
-        autoTimer.Stop();
-        Check(autoComplete, "GUI auto button finishes a second high-quality video export");
-        var newAuto = Directory.GetFiles(dir, "*_auto_reviewed_*.mp4")
-            .Where(path => !beforeAuto.Contains(path)).ToArray();
-        Check(newAuto.Length == 1, "auto mode creates exactly one new reviewed MP4");
-        Check(Path.GetFileName(newAuto[0]).StartsWith("sample_auto_reviewed_", StringComparison.Ordinal),
-            "reviewed filename is readable and does not duplicate earlier timestamps");
-        string reviewedFile = newAuto[0];
-        var reviewedVideo = await MediaEngine.ProbeAsync(reviewedFile);
-        var inputVideo = await MediaEngine.ProbeAsync(second);
-        Check(reviewedVideo.AudioTracks == inputVideo.AudioTracks && reviewedVideo.AudioTracks == 1,
-            "automatic review preserves audio already confirmed as licensed");
-        Check(reviewedVideo.VideoCodec == "h264" && reviewedVideo.AudioCodec == "aac",
-            "auto reviewed file uses H.264 video and AAC audio");
-        Check(reviewedVideo.Width == inputVideo.Width && reviewedVideo.Height == inputVideo.Height,
-            "auto mode preserves completed video's frame dimensions");
-        Check(Math.Abs(reviewedVideo.Fps - inputVideo.Fps) < .3,
-            "auto mode preserves the completed video's frame rate");
-        Check(Math.Abs(reviewedVideo.Duration - inputVideo.Duration) < .15,
-            "auto mode preserves the previous export's duration");
-        Check(Ui<TextBlock>(window, "OutputInfo").Text.Contains(Path.GetFileName(reviewedFile)),
-            "auto export becomes the displayed final file");
-        Check(Ui<TextBlock>(window, "AutoRightsInfo").Text.Contains("Content ID claims remain possible."),
-            "final interface explicitly states that claims remain possible");
-        Check(!autoReviewButton.IsEnabled, "automatic review is not repeated indefinitely on the same result");
-        measurements.Add(new {
-            scenario = "post-export copyright-risk review", seconds = Math.Round(autoTimer.Elapsed.TotalSeconds,3),
-            input_bytes = new FileInfo(second).Length, output_bytes = new FileInfo(reviewedFile).Length,
-            video_width = reviewedVideo.Width, audio_tracks = reviewedVideo.AudioTracks
-        });
-        Check(Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(source))) == originalHash,
-            "original source bytes unchanged");
+        await LoadAsync(window,media[0]);
+        var firstMetadata=await MediaEngine.ProbeAsync(media[0]);
+        Check(Ui<TextBlock>(window,"SelectedVideoText").Text==Path.GetFileName(media[0]),
+            "imported filename appears in simple UI");
+        Check(Ui<TextBlock>(window, "SelectedDetailsText").Text.Contains("320") &&
+              Ui<TextBlock>(window, "SelectedDetailsText").Text.Contains("24"),
+            "basic dimensions and FPS are displayed without controls");
+        var originalHash = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(media[0])));
+        string first = await ConvertViaButtonAsync(window,"Higgsfield generated video with narration",firstMetadata);
+        Check(Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(media[0]))) == originalHash,
+            "source stays byte-for-byte unchanged");
+        SaveScreenshot(window,Path.Combine(dir,"completed-simple-ui.png"));
 
-        // Regression: new imports must not retain stale source-relative trim/crop values.
-        Ui<TextBox>(window, "TrimStart").Text = "1.5";
-        Ui<TextBox>(window, "TrimEnd").Text = "2.1";
-        Ui<TextBox>(window, "CropX").Text = "2";
-        Ui<TextBox>(window, "CropW").Text = "200";
-        Ui<TextBox>(window, "CropH").Text = "120";
-        await LoadAsync(window, Path.Combine(dir, "silent.mp4"));
-        Check(Ui<TextBox>(window, "TrimStart").Text == "0" && Ui<TextBox>(window, "TrimEnd").Text == "0", "new file clears stale trim");
-        Check(Ui<TextBox>(window, "CropX").Text == "0" && Ui<TextBox>(window, "CropW").Text == "0" && Ui<TextBox>(window, "CropH").Text == "0", "new file clears stale crop");
-        Check(Ui<ComboBox>(window, "AudioMode").SelectedIndex == 1, "silent source defaults to mute");
-        Check(Ui<CheckBox>(window, "RightsVideo").IsChecked != true, "new source resets visual rights");
-        Check(Ui<CheckBox>(window, "RightsAudio").IsChecked != true, "new source resets audio rights");
-        Ui<CheckBox>(window, "RightsVideo").IsChecked = true;
-        Ui<CheckBox>(window, "Watermark").IsChecked = false;
-        Ui<TextBox>(window, "TrimStart").Text = "0";
-        Ui<TextBox>(window, "TrimEnd").Text = "0";
-        Check(convert.IsEnabled, "silent video export needs no audio rights");
-        Check(autoReviewButton.IsEnabled, "auto mode is available directly for a silent video");
-        var silentAutoBefore = Directory.GetFiles(dir, "*_auto_reviewed_*.mp4").ToHashSet();
-        Click(autoReviewButton);
-        bool directAutoFinished = false;
-        for (int n = 0; n < 250; n++)
-        {
-            if (Ui<TextBlock>(window, "Status").Text.StartsWith("Auto-review copy completed.", StringComparison.Ordinal))
-            { directAutoFinished = true; break; }
-            await Task.Delay(150);
-        }
-        Check(directAutoFinished, "one-click auto mode works without requiring an unsafe first export");
-        var silentAutoFiles = Directory.GetFiles(dir, "*_auto_reviewed_*.mp4")
-            .Where(path => !silentAutoBefore.Contains(path)).ToArray();
-        Check(silentAutoFiles.Length == 1, "direct auto mode produces one new output");
-        var directAudio = await MediaEngine.ProbeAsync(silentAutoFiles[0]);
-        Check(directAudio.AudioTracks == 0 && directAudio.VideoCodec == "h264",
-            "direct automatic export stays silent and uses H.264");
-        Check(convert.IsEnabled, "regular export remains possible after using auto mode");
-        var silentOutput = await ExportViaUiAsync(window, dir, "silent source without soundtrack");
-        var silentDetails = await MediaEngine.ProbeAsync(silentOutput);
-        Check(silentDetails.AudioTracks == 0, "silent export remains silent");
+        string second = await ConvertViaButtonAsync(window,"repeat Convert click",firstMetadata);
+        Check(first != second && File.Exists(first),
+            "repeating conversion creates a unique file and keeps the previous export");
 
-        // Higgsfield AI-video scenario: generated narration is retained intact,
-        // without assuming rights to separately added music.
-        await LoadAsync(window, source);
-        Check(higgsfieldVoice.IsChecked != true, "loading another source clears prior AI-voice confirmation");
-        Ui<CheckBox>(window, "RightsVideo").IsChecked = true;
-        higgsfieldVoice.IsChecked = true;
-        Check(Ui<CheckBox>(window, "RightsAudio").IsChecked != true &&
-            Ui<ComboBox>(window, "AudioMode").SelectedIndex == 0,
-            "Higgsfield-specific confirmation is separate from generic audio approval");
-        Check(convert.IsEnabled, "Higgsfield narration alone can be used in normal export with permission");
-        var autoBeforeVoice = Directory.GetFiles(dir, "*_auto_reviewed_*.mp4").ToHashSet();
-        Click(autoReviewButton);
-        bool voiceAutoComplete = false;
-        for (int n = 0; n < 250; n++)
-        {
-            if (Ui<TextBlock>(window, "Status").Text.StartsWith("Auto-review copy completed.", StringComparison.Ordinal))
-            { voiceAutoComplete = true; break; }
-            await Task.Delay(150);
-        }
-        Check(voiceAutoComplete, "one-click Higgsfield narration auto export completes");
-        var narratedFiles = Directory.GetFiles(dir, "*_auto_reviewed_*.mp4")
-            .Where(path => !autoBeforeVoice.Contains(path)).ToArray();
-        Check(narratedFiles.Length == 1, "Higgsfield auto mode creates one independently encoded MP4");
-        var narrationResult = await MediaEngine.ProbeAsync(narratedFiles[0]);
-        Check(narrationResult.AudioTracks == 1 && narrationResult.AudioCodec == "aac",
-            "Higgsfield confirmed AI narration is retained as AAC, not muted");
-        Check(Ui<TextBlock>(window, "AutoRightsInfo").Text.Contains("Higgsfield AI narration retained"),
-            "Higgsfield-specific result confirms narration preservation");
-        Check(Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(source))) == originalHash,
-            "Higgsfield source remains unchanged after auto export");
+        await LoadAsync(window,media[1]);
+        Check(Ui<Button>(window,"OpenOutputButton").Visibility == Visibility.Collapsed,
+            "importing another video clears stale output-file action");
+        string silent = await ConvertViaButtonAsync(window,"silent video",await MediaEngine.ProbeAsync(media[1]));
+        Check((await MediaEngine.ProbeAsync(silent)).AudioTracks == 0,
+            "silent input does not accidentally receive an audio track");
 
-        await LoadAsync(window, Path.Combine(dir, "does-not-exist.mp4"));
-        Check(!convert.IsEnabled, "invalid source blocks conversion");
-        Check(Ui<TextBlock>(window, "Status").Text == "Could not open video", "invalid source gives clear error");
-        Check(Ui<MediaElement>(window, "Preview").Source == null, "invalid source clears stale preview");
-        Check(Ui<Image>(window, "PosterImage").Source == null, "invalid source clears stale thumbnail");
-        var result = new
-        {
-            test_date = DateTimeOffset.UtcNow, assertions, scenario_results = measurements,
-            gui_peak_ram_mb = Math.Round(Process.GetCurrentProcess().PeakWorkingSet64 / 1048576.0, 1),
-            coverage = "WPF instantiated and interacted with via controls; native file dialog and manual mouse actions not automated."
+        await LoadAsync(window,media[2]);
+        var portrait = await MediaEngine.ProbeAsync(media[2]);
+        await ConvertViaButtonAsync(window,"vertical short-form video",portrait);
+
+        await LoadAsync(window,media[3]);
+        var dualAudio = await MediaEngine.ProbeAsync(media[3]);
+        Check(dualAudio.AudioTracks == 2,"multi-language fixture includes two separate audio tracks");
+        await ConvertViaButtonAsync(window,"two-track narration",dualAudio);
+
+        string corrupt=Path.Combine(dir,"invalid-video.mp4");
+        await File.WriteAllTextAsync(corrupt,"not an actual video stream");
+        await LoadAsync(window,corrupt);
+        Check(!Ui<Button>(window,"ConvertButton").IsEnabled,
+            "corrupted input blocks Convert");
+        Check(Ui<TextBlock>(window,"StatusText").Text.StartsWith("Video import failed:",StringComparison.Ordinal),
+            "invalid file displays a useful error");
+        Check(Ui<Button>(window,"OpenOutputButton").Visibility == Visibility.Collapsed,
+            "failed import does not expose a stale export");
+
+        var report = new {
+            date_utc = DateTimeOffset.UtcNow,
+            assertions,
+            exports = observations,
+            notes = "Automated WPF button interactions on a Windows Actions runner, not human mouse input or real Higgsfield-generated files.",
+            no_manual_options = CountManualControls(window) == 0
         };
-        await File.WriteAllTextAsync(Path.Combine(dir, "gui_acceptance.json"),
-            JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true }));
+        await File.WriteAllTextAsync(Path.Combine(dir,"results.json"),
+            JsonSerializer.Serialize(report,new JsonSerializerOptions { WriteIndented=true }));
     }
 }
