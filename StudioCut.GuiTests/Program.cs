@@ -26,7 +26,7 @@ internal static class Program
             try
             {
                 await RunUserAcceptanceAsync(window);
-                Console.WriteLine($"GUI ACCEPTANCE PASS: {assertions} assertions, 5 UI-triggered exports (3 normal and 2 auto).");
+                Console.WriteLine($"GUI ACCEPTANCE PASS: {assertions} assertions, 6 UI-triggered exports (3 normal and 3 auto).");
             }
             catch (Exception ex)
             {
@@ -243,8 +243,15 @@ internal static class Program
             && textBrush.Color.R > 180 && textBrush.Color.G > 180 && textBrush.Color.B > 180,
             "dark-theme checkbox text has light foreground");
         Check(Ui<ComboBox>(window, "AudioMode").SelectedIndex == 0, "normal source defaults to keep audio");
+        var higgsfieldVoice = Ui<CheckBox>(window, "HiggsfieldVoiceConfirmed");
+        Check(higgsfieldVoice.IsChecked != true, "AI narration rights are not presumed for an imported video");
         Check(!convert.IsEnabled, "copyright confirmations required");
         Ui<CheckBox>(window, "RightsVideo").IsChecked = true;
+        Check(!convert.IsEnabled, "visual rights alone do not approve an audio soundtrack");
+        higgsfieldVoice.IsChecked = true;
+        Check(convert.IsEnabled && Ui<CheckBox>(window, "RightsAudio").IsChecked != true,
+            "explicit Higgsfield narration permission preserves voice in Keep original mode");
+        higgsfieldVoice.IsChecked = false;
         Ui<CheckBox>(window, "RightsAudio").IsChecked = true;
         Check(convert.IsEnabled, "valid source and rights enable conversion");
         Ui<TextBox>(window, "TrimEnd").Text = "bad";
@@ -397,6 +404,37 @@ internal static class Program
         var silentOutput = await ExportViaUiAsync(window, dir, "silent source without soundtrack");
         var silentDetails = await MediaEngine.ProbeAsync(silentOutput);
         Check(silentDetails.AudioTracks == 0, "silent export remains silent");
+
+        // Higgsfield AI-video scenario: generated narration is retained intact,
+        // without assuming rights to separately added music.
+        await LoadAsync(window, source);
+        Check(higgsfieldVoice.IsChecked != true, "loading another source clears prior AI-voice confirmation");
+        Ui<CheckBox>(window, "RightsVideo").IsChecked = true;
+        higgsfieldVoice.IsChecked = true;
+        Check(Ui<CheckBox>(window, "RightsAudio").IsChecked != true &&
+            Ui<ComboBox>(window, "AudioMode").SelectedIndex == 0,
+            "Higgsfield-specific confirmation is separate from generic audio approval");
+        Check(convert.IsEnabled, "Higgsfield narration alone can be used in normal export with permission");
+        var autoBeforeVoice = Directory.GetFiles(dir, "*_auto_reviewed_*.mp4").ToHashSet();
+        Click(autoReviewButton);
+        bool voiceAutoComplete = false;
+        for (int n = 0; n < 250; n++)
+        {
+            if (Ui<TextBlock>(window, "Status").Text.StartsWith("Auto-review copy completed.", StringComparison.Ordinal))
+            { voiceAutoComplete = true; break; }
+            await Task.Delay(150);
+        }
+        Check(voiceAutoComplete, "one-click Higgsfield narration auto export completes");
+        var narratedFiles = Directory.GetFiles(dir, "*_auto_reviewed_*.mp4")
+            .Where(path => !autoBeforeVoice.Contains(path)).ToArray();
+        Check(narratedFiles.Length == 1, "Higgsfield auto mode creates one independently encoded MP4");
+        var narrationResult = await MediaEngine.ProbeAsync(narratedFiles[0]);
+        Check(narrationResult.AudioTracks == 1 && narrationResult.AudioCodec == "aac",
+            "Higgsfield confirmed AI narration is retained as AAC, not muted");
+        Check(Ui<TextBlock>(window, "AutoRightsInfo").Text.Contains("Higgsfield AI narration retained"),
+            "Higgsfield-specific result confirms narration preservation");
+        Check(Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(source))) == originalHash,
+            "Higgsfield source remains unchanged after auto export");
 
         await LoadAsync(window, Path.Combine(dir, "does-not-exist.mp4"));
         Check(!convert.IsEnabled, "invalid source blocks conversion");

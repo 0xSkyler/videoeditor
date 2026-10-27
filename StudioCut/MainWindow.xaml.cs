@@ -19,6 +19,7 @@ public partial class MainWindow : Window
     private CancellationTokenSource? convertCancellation;
     private readonly DispatcherTimer playbackTimer;
     private bool busy, initialized, checkingAsset, updatingSeek, previewBusy, autoReviewed;
+    private bool lastExportUsesConfirmedHiggsfieldVoice;
     private int loadVersion;
 
     public MainWindow()
@@ -59,7 +60,9 @@ public partial class MainWindow : Window
     {
         Source = source, Music = music, Overlay = overlay, OutputFolder = folder,
         Container = Selected(Format), Quality = Selected(Quality), AudioMode = Selected(AudioMode),
-        RightsVideo = RightsVideo.IsChecked == true, RightsAudio = RightsAudio.IsChecked == true,
+        RightsVideo = RightsVideo.IsChecked == true,
+        RightsAudio = RightsAudio.IsChecked == true ||
+            (HiggsfieldVoiceConfirmed.IsChecked == true && Selected(AudioMode) == "Keep original"),
         Hardware = Hardware.IsChecked == true, Normalize = Normalize.IsChecked == true,
         Denoise = Denoise.IsChecked == true, VoiceEnhance = VoiceEnhance.IsChecked == true,
         AudioFade = AudioFade.IsChecked == true, VideoFade = VideoFade.IsChecked == true,
@@ -155,6 +158,8 @@ public partial class MainWindow : Window
         details = null;
         lastOutput = "";
         autoReviewed = false;
+        lastExportUsesConfirmedHiggsfieldVoice = false;
+        HiggsfieldVoiceConfirmed.IsChecked = false;
         OutputInfo.Text = "";
         AutoRightsInfo.Text = "Auto mode uses your most recent export, or your imported source. It cannot remove copyright or bypass Content ID.";
         VideoInfo.Text = "";
@@ -256,7 +261,8 @@ public partial class MainWindow : Window
             MusicName.Text = Path.GetFileName(music);
             if (AudioMode.SelectedIndex < 2) AudioMode.SelectedIndex = 2;
             RightsAudio.IsChecked = false;
-            Status.Text = "Music loaded. Confirm its usage rights to continue.";
+            HiggsfieldVoiceConfirmed.IsChecked = false;
+            Status.Text = "External music loaded. Confirm its rights separately before converting.";
         }
         catch (Exception ex)
         {
@@ -410,12 +416,15 @@ public partial class MainWindow : Window
 
         // Rights are supplied by the user. No offline program can reliably
         // determine whether a track or image is copyrighted by someone else.
+        bool exportedFileSelected = File.Exists(lastOutput);
+        bool confirmedHiggsfieldSoundtrack = HiggsfieldVoiceConfirmed.IsChecked == true
+            && (!exportedFileSelected || lastExportUsesConfirmedHiggsfieldVoice);
         var current = new Options
         {
             Source = exportedSource,
             OutputFolder = folder,
             RightsVideo = RightsVideo.IsChecked == true,
-            RightsAudio = RightsAudio.IsChecked == true
+            RightsAudio = RightsAudio.IsChecked == true || confirmedHiggsfieldSoundtrack
         };
         AutoRightsPlan plan = AutoRightsPlanner.Create(current, media);
         if (!plan.CanExport || plan.Export is not Options autoOptions)
@@ -431,9 +440,11 @@ public partial class MainWindow : Window
         if (plan.RemovesUnconfirmedAudio)
         {
             var response = MessageBox.Show(
-                "No rights confirmation was provided for the audio in the exported video."
+                "The narration may be your original Higgsfield-generated AI speech."
+                + Environment.NewLine + "If you are allowed to use that generated voice and any included music,"
+                + " tick the Higgsfield AI narration confirmation and try again."
                 + Environment.NewLine + Environment.NewLine
-                + "Auto mode can mute ALL audio, including your narration and any music. "
+                + "Otherwise Auto mode can mute ALL audio, including your narration and any music. "
                 + "It cannot separate licensed speech from unlicensed music in an already mixed track."
                 + Environment.NewLine + Environment.NewLine
                 + "Continue with a completely silent copy?",
@@ -448,7 +459,9 @@ public partial class MainWindow : Window
 
         AutoRightsInfo.Text = plan.RemovesUnconfirmedAudio
             ? "Creating high-quality MP4 with all unconfirmed audio removed. No copyright clearance is implied."
-            : "Creating high-quality MP4 with confirmed audio preserved. No copyright clearance is implied.";
+            : confirmedHiggsfieldSoundtrack
+                ? "Preserving your confirmed Higgsfield narration and creating a high-quality MP4. No copyright clearance is implied."
+                : "Creating high-quality MP4 with confirmed audio preserved. No copyright clearance is implied.";
         await ExecuteExportAsync(autoOptions, media, true, plan);
     }
 
@@ -478,6 +491,9 @@ public partial class MainWindow : Window
             finished = true;
             lastOutput = output;
             autoReviewed = automatic;
+            if (!automatic)
+                lastExportUsesConfirmedHiggsfieldVoice = HiggsfieldVoiceConfirmed.IsChecked == true
+                    && options.AudioMode == "Keep original" && media.AudioTracks > 0;
             Progress.Value = 100;
             double size = new FileInfo(output).Length / 1048576.0;
             OutputInfo.Text = $"Saved: {output} ({size:0.0} MB)";
@@ -488,14 +504,17 @@ public partial class MainWindow : Window
             {
                 string track = plan?.RemovesUnconfirmedAudio == true
                     ? "Unconfirmed audio muted, including any narration."
-                    : media.AudioTracks == 0 ? "Silent source remained silent." : "Confirmed audio retained.";
+                    : media.AudioTracks == 0 ? "Silent source remained silent."
+                    : (HiggsfieldVoiceConfirmed.IsChecked == true && options.RightsAudio)
+                        ? "Confirmed Higgsfield AI narration retained."
+                        : "Confirmed audio retained.";
                 AutoRightsInfo.Text = "Completed: MP4 H.264/AAC where applicable; source resolution and FPS preserved. "
                     + track + " Copyright NOT independently cleared; Content ID claims remain possible.";
             }
             else
             {
-                AutoRightsInfo.Text = "Initial export ready. Auto review can re-encode a copy and mute unconfirmed audio, "
-                    + "but cannot remove copyrighted material or guarantee Content ID clearance.";
+                AutoRightsInfo.Text = "Initial export ready. Confirm permitted use of Higgsfield AI narration to keep it; "
+                    + "auto review cannot remove copyright or guarantee Content ID clearance.";
             }
         }
         catch (OperationCanceledException)

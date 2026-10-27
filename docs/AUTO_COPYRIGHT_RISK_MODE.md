@@ -31,3 +31,16 @@ The feature does not connect to YouTube or a recognition service. It never modif
 The Windows automated suites cover the planner's permission/blocking cases, preservation of source settings, final H.264/AAC codecs, separate output filenames, two actual automatic exports (retained audio and muted audio), and an additional real WPF post-export button workflow. A licensed soundtrack is never assumed because the audio file looks technically readable.
 
 The tests *do not* certify copyright clearance, compare against YouTube Content ID, or provide a legal assessment. They also do not replace hands-on mouse/keyboard usability testing on physical Windows hardware.
+
+## Higgsfield AI narration workflow
+
+For videos made entirely with Higgsfield (including text-to-speech narration), select **Higgsfield AI narration: I confirm I can use this voice and any included music**, after checking your project and the applicable provider terms. This is a user-confirmed permission statement. StudioCut does not independently validate a Higgsfield account, a Microsoft voice model, or the underlying licenses.
+
+When Auto mode processes the imported Higgsfield video, it preserves the original audio. When Auto mode processes a previous StudioCut export, it applies the Higgsfield confirmation only when that export retained the original audio without mixing in external music. If external music has been mixed, the general audio-rights confirmation is needed, and it should only be given when the added music is cleared.
+
+Do not remove or distort your own AI-generated narration merely to alter its audio fingerprint. Voice synthesis alone does not prove infringement. For a mistaken YouTube claim, use the platform's dispute process only when you can substantiate your rights. Keep your original Higgsfield project, prompts, download records and the relevant terms as supporting records.
+
+References (verify current terms yourself):
+- https://higgsfield.ai/terms-of-use-agreement
+- https://learn.microsoft.com/en-us/azure/ai-foundry/responsible-ai/speech-service/text-to-speech/transparency-note
+- https://support.google.com/youtube/answer/2797454
