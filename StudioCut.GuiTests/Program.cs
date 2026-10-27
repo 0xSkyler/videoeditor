@@ -255,7 +255,7 @@ internal static class Program
             await Task.Delay(100);
         }
         Check(thumbnailReady, "real FFmpeg poster frame is displayed after import");
-        Check(Ui<Image>(window, "EmptyPoster").Visibility == Visibility.Collapsed,
+        Check(Ui<TextBlock>(window, "EmptyPoster").Visibility == Visibility.Collapsed,
             "placeholder is hidden when real first-frame preview appears");
         Check(Ui<TextBlock>(window,"SelectedVideoText").Text==Path.GetFileName(media[0]),
             "imported filename appears in simple UI");
