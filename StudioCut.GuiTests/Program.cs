@@ -330,6 +330,8 @@ internal static class Program
         var newAuto = Directory.GetFiles(dir, "*_auto_reviewed_*.mp4")
             .Where(path => !beforeAuto.Contains(path)).ToArray();
         Check(newAuto.Length == 1, "auto mode creates exactly one new reviewed MP4");
+        Check(Path.GetFileName(newAuto[0]).StartsWith("sample_auto_reviewed_", StringComparison.Ordinal),
+            "reviewed filename is readable and does not duplicate earlier timestamps");
         string reviewedFile = newAuto[0];
         var reviewedVideo = await MediaEngine.ProbeAsync(reviewedFile);
         var inputVideo = await MediaEngine.ProbeAsync(second);
@@ -339,6 +341,8 @@ internal static class Program
             "auto reviewed file uses H.264 video and AAC audio");
         Check(reviewedVideo.Width == inputVideo.Width && reviewedVideo.Height == inputVideo.Height,
             "auto mode preserves completed video's frame dimensions");
+        Check(Math.Abs(reviewedVideo.Fps - inputVideo.Fps) < .3,
+            "auto mode preserves the completed video's frame rate");
         Check(Math.Abs(reviewedVideo.Duration - inputVideo.Duration) < .15,
             "auto mode preserves the previous export's duration");
         Check(Ui<TextBlock>(window, "OutputInfo").Text.Contains(Path.GetFileName(reviewedFile)),

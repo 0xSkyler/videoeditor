@@ -339,6 +339,11 @@ public static class MediaEngine
         if (o.AudioMode is "Replace with music" or "Mix music") await EnsureStreamAsync(o.Music, "audio", ct);
         if (o.Watermark) await EnsureStreamAsync(o.Overlay, "video", ct);
         string name = Path.GetFileNameWithoutExtension(o.Source);
+        // A reviewed export should have a short, recognizable name, rather than
+        // recursively appending its previous full timestamp and GUID.
+        if (outputTag == "auto_reviewed")
+            name = Regex.Replace(name, @"_edited_\d{8}_\d{6}_\d{3}_[0-9a-fA-F]{32}$", "", RegexOptions.IgnoreCase);
+        if (name.Length > 80) name = name[..80];
         string suffix = outputTag == "auto_reviewed" ? "auto_reviewed" : "edited";
         string output = Path.Combine(o.OutputFolder, $"{name}_{suffix}_{DateTime.Now:yyyyMMdd_HHmmss_fff}_{Guid.NewGuid():N}.{o.Container}");
         if (Path.GetFullPath(output).Equals(Path.GetFullPath(o.Source), StringComparison.OrdinalIgnoreCase)) throw new IOException("Output cannot overwrite the input.");

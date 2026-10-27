@@ -175,9 +175,11 @@ internal static class Program
                 CancellationToken.None, "auto_reviewed");
             Check(File.Exists(autoOutput) && Path.GetFileName(autoOutput).Contains("_auto_reviewed_"),
                 "auto mode creates a distinct, clearly labeled output");
+            Check(Path.GetFileName(autoOutput).StartsWith("source_auto_reviewed_", StringComparison.Ordinal),
+                "auto mode uses a short, recognizable filename");
             var reviewed = await MediaEngine.ProbeAsync(autoOutput);
             Check(reviewed.AudioTracks == 1 && reviewed.Width == d.Width && reviewed.Height == d.Height &&
-                  Math.Abs(reviewed.Duration - d.Duration) < .25,
+                  Math.Abs(reviewed.Fps - d.Fps) < .3 && Math.Abs(reviewed.Duration - d.Duration) < .25,
                 "auto output preserves original dimensions, duration and approved audio");
             Check(reviewed.VideoCodec == "h264" && reviewed.AudioCodec == "aac",
                 "auto audio-retaining output is standardized to H.264/AAC");
