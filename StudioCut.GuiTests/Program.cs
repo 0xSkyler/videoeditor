@@ -254,6 +254,18 @@ internal static class Program
         higgsfieldVoice.IsChecked = false;
         Ui<CheckBox>(window, "RightsAudio").IsChecked = true;
         Check(convert.IsEnabled, "valid source and rights enable conversion");
+        // Higgsfield narration permission does not cover third-party music added later.
+        PrivateField(window, "music", Path.Combine(dir, "music.wav"));
+        Ui<ComboBox>(window, "AudioMode").SelectedIndex = 3;
+        Ui<CheckBox>(window, "RightsAudio").IsChecked = false;
+        higgsfieldVoice.IsChecked = true;
+        Check(!convert.IsEnabled,
+            "Higgsfield voice approval alone cannot authorize separately mixed external music");
+        Ui<CheckBox>(window, "RightsAudio").IsChecked = true;
+        Check(convert.IsEnabled, "licensed external music allows a normal mixed soundtrack export");
+        Ui<ComboBox>(window, "AudioMode").SelectedIndex = 0;
+        higgsfieldVoice.IsChecked = false;
+        Check(convert.IsEnabled, "normal export works after returning to licensed original soundtrack");
         Ui<TextBox>(window, "TrimEnd").Text = "bad";
         Check(!convert.IsEnabled, "invalid trim disables conversion");
         Ui<TextBox>(window, "TrimEnd").Text = "2.5";
