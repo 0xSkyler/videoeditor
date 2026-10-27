@@ -36,6 +36,8 @@ public sealed class Options
     public int CropH { get; set; }
     public string Text { get; set; } = "";
     public int OriginalAudioTrack { get; set; }
+    /// <summary>Auto export preserves every confirmed source audio track (including language alternatives).</summary>
+    public bool KeepAllAudioTracks { get; set; }
 }
 public sealed class MediaDetails
 {

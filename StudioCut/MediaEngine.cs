@@ -170,8 +170,20 @@ public static class MediaEngine
         string musicChain = $"[1:a:0]{musicTrim},asetpts=PTS-STARTPTS,{FilterAudio(o,duration,false)}{musicDelay},apad,atrim=duration={F(duration)},asetpts=PTS-STARTPTS";
         if (o.AudioMode == "Keep original")
         {
-            chains.Add($"[0:a:{o.OriginalAudioTrack}]{FilterAudio(o,duration,true)}[aout]");
-            args.AddRange(new[] { "-map", "[aout]" });
+            if (o.KeepAllAudioTracks && d.AudioTracks > 1)
+            {
+                for (int audioIndex = 0; audioIndex < d.AudioTracks; audioIndex++)
+                {
+                    string label = $"aout{audioIndex}";
+                    chains.Add($"[0:a:{audioIndex}]{FilterAudio(o,duration,true)}[{label}]");
+                    args.AddRange(new[] { "-map", $"[{label}]" });
+                }
+            }
+            else
+            {
+                chains.Add($"[0:a:{o.OriginalAudioTrack}]{FilterAudio(o,duration,true)}[aout]");
+                args.AddRange(new[] { "-map", "[aout]" });
+            }
         }
         else if (o.AudioMode == "Replace with music")
         {
@@ -366,6 +378,9 @@ public static class MediaEngine
             bool audioWanted = o.AudioMode != "Mute all";
             if (result.AudioTracks == 0 && audioWanted)
                 throw new IOException("The exported file is missing its expected audio.");
+            if (o.KeepAllAudioTracks && o.AudioMode == "Keep original"
+                && result.AudioTracks != details.AudioTracks)
+                throw new IOException($"The export lost one or more licensed audio tracks ({result.AudioTracks}/{details.AudioTracks}).");
             if (result.AudioTracks != 0 && !audioWanted)
                 throw new IOException("The exported file unexpectedly contains audio.");
             if (Math.Abs(result.Duration - duration) > Math.Max(.6, duration * .02))

@@ -45,6 +45,7 @@ public static class AutoRightsPlanner
             RightsVideo = true,
             RightsAudio = keepSoundtrack,
             OriginalAudioTrack = 0,
+            KeepAllAudioTracks = keepSoundtrack && source.AudioTracks > 1,
             Width = 0, Height = 0, Fps = 0,
             Start = 0, End = 0,
             Volume = 1,
@@ -60,10 +61,10 @@ public static class AutoRightsPlanner
             adjustments.Add("Input has no audio; the final MP4 will remain silent.");
         else if (!keepSoundtrack)
             adjustments.Add("All source audio (including any narration) will be muted because audio rights are not confirmed.");
+        else if (source.AudioTracks > 1)
+            adjustments.Add($"Preserve all {source.AudioTracks} audio tracks because you confirmed rights to the complete soundtrack.");
         else
-            adjustments.Add("Keep the first audio track because you confirmed rights to all of its content.");
-        if (source.AudioTracks > 1 && keepSoundtrack)
-            limitations.Add("Only the first source audio track is kept; export additional tracks manually if required.");
+            adjustments.Add("Keep the original audio track because you confirmed rights to all of its content.");
 
         var validation = MediaEngine.Validate(optimized, source);
         if (validation.Count != 0)
