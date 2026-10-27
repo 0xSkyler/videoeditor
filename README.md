@@ -2,7 +2,7 @@
 
 ## NEW: Auto Copyright-Risk Review (v0.4.0)
 
-After a regular export, click **Auto: Review & Fix Copyright Risks** to make a separately named, high-quality MP4 copy. The automated preset uses H.264/AAC, preserves the current exported video's resolution, frame rate, content and duration as closely as encoding permits, and checks the output for playable video/audio. If audio rights are unconfirmed, it asks for approval before muting **all audio including narration**. Unconfirmed visual rights block the export.
+After importing a video or after a regular export, click **Auto: Review & Fix Copyright Risks** to make a separately named, high-quality MP4 copy. The automated preset uses H.264/AAC, preserves the current exported video's resolution, frame rate, content and duration as closely as encoding permits, and checks the output for playable video/audio. If audio rights are unconfirmed, it asks for approval before muting **all audio including narration**. Unconfirmed visual rights block the export.
 
 **This mode does not remove copyright and does not bypass or guarantee clearance from YouTube Content ID.** Bitrate, frame-rate, codec and metadata changes cannot confer legal rights. Read [Automatic Copyright-Risk Review](docs/AUTO_COPYRIGHT_RISK_MODE.md) before use.
 

@@ -98,7 +98,7 @@ public partial class MainWindow : Window
         else EstimateText.Text = "";
         OpenExportButton.IsEnabled = File.Exists(lastOutput);
         AutoRightsButton.IsEnabled = !busy && !checkingAsset && !previewBusy
-            && !autoReviewed && File.Exists(lastOutput);
+            && !autoReviewed && (File.Exists(lastOutput) || details != null);
     }
 
     private void OptionChanged(object sender, RoutedEventArgs e) => Refresh();
@@ -156,7 +156,7 @@ public partial class MainWindow : Window
         lastOutput = "";
         autoReviewed = false;
         OutputInfo.Text = "";
-        AutoRightsInfo.Text = "Auto mode runs on your last export. It cannot remove copyright, verify licenses or bypass Content ID.";
+        AutoRightsInfo.Text = "Auto mode uses your most recent export, or your imported source. It cannot remove copyright or bypass Content ID.";
         VideoInfo.Text = "";
         Preview.Stop();
         Preview.Source = null;
@@ -385,12 +385,12 @@ public partial class MainWindow : Window
 
     private async void AutoRightsClick(object sender, RoutedEventArgs e)
     {
-        if (busy || checkingAsset || previewBusy || autoReviewed || !File.Exists(lastOutput)) return;
+        if (busy || checkingAsset || previewBusy || autoReviewed || (!File.Exists(lastOutput) && details == null)) return;
 
-        string exportedSource = lastOutput;
+        string exportedSource = File.Exists(lastOutput) ? lastOutput : source;
         MediaDetails media;
         checkingAsset = true;
-        AutoRightsInfo.Text = "Checking the last exported video's streams before automatic processing...";
+        AutoRightsInfo.Text = "Checking the selected video's streams before automatic processing...";
         Refresh();
         try
         {
@@ -398,7 +398,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            AutoRightsInfo.Text = "Could not inspect the last export. No changes were made.";
+            AutoRightsInfo.Text = "Could not inspect the selected video. No changes were made.";
             MessageBox.Show(ex.Message, "Auto copyright-risk review", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
         }

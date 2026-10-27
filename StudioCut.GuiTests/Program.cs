@@ -236,6 +236,7 @@ internal static class Program
         Check(!autoReviewButton.IsEnabled, "copyright-risk auto mode requires a prior exported video");
         await LoadAsync(window, source);
         Check(Ui<TextBlock>(window, "VideoInfo").Text.Contains("320 × 180"), "source dimensions visible");
+        Check(autoReviewButton.IsEnabled, "auto mode can process an imported video without a prior export");
         Check(Ui<Image>(window, "PosterImage").Source is BitmapSource poster && poster.PixelWidth > 0, "first-frame poster generated from actual source");
         Check(Ui<Image>(window, "PosterImage").Visibility == Visibility.Visible, "preview poster visible before Play");
         Check(Ui<CheckBox>(window, "Normalize").Foreground is SolidColorBrush textBrush
@@ -375,6 +376,24 @@ internal static class Program
         Ui<TextBox>(window, "TrimStart").Text = "0";
         Ui<TextBox>(window, "TrimEnd").Text = "0";
         Check(convert.IsEnabled, "silent video export needs no audio rights");
+        Check(autoReviewButton.IsEnabled, "auto mode is available directly for a silent video");
+        var silentAutoBefore = Directory.GetFiles(dir, "*_auto_reviewed_*.mp4").ToHashSet();
+        Click(autoReviewButton);
+        bool directAutoFinished = false;
+        for (int n = 0; n < 250; n++)
+        {
+            if (Ui<TextBlock>(window, "Status").Text.StartsWith("Auto-review copy completed.", StringComparison.Ordinal))
+            { directAutoFinished = true; break; }
+            await Task.Delay(150);
+        }
+        Check(directAutoFinished, "one-click auto mode works without requiring an unsafe first export");
+        var silentAutoFiles = Directory.GetFiles(dir, "*_auto_reviewed_*.mp4")
+            .Where(path => !silentAutoBefore.Contains(path)).ToArray();
+        Check(silentAutoFiles.Length == 1, "direct auto mode produces one new output");
+        var directAudio = await MediaEngine.ProbeAsync(silentAutoFiles[0]);
+        Check(directAudio.AudioTracks == 0 && directAudio.VideoCodec == "h264",
+            "direct automatic export stays silent and uses H.264");
+        Check(convert.IsEnabled, "regular export remains possible after using auto mode");
         var silentOutput = await ExportViaUiAsync(window, dir, "silent source without soundtrack");
         var silentDetails = await MediaEngine.ProbeAsync(silentOutput);
         Check(silentDetails.AudioTracks == 0, "silent export remains silent");

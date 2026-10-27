@@ -9,8 +9,8 @@ Editing frame rate, bitrate, colors or metadata does **not** remove copyright pr
 ## End-user workflow
 
 1. Import and edit your original, licensed video. Select audio, crop, overlays and caption as needed. Confirm the visual and audio permissions you have.
-2. Press **Start Convert**; this creates a normal edited output and keeps the original unchanged.
-3. The post-export **Auto: Review & Fix Copyright Risks** button becomes available.
+2. Optionally press **Start Convert** first to create your normal edited result. You can also run the automated review directly on the imported source (useful if the source contains unlicensed audio and a normal export is blocked).
+3. The **Auto: Review & Fix Copyright Risks** button is available once a video is imported. When a finished export exists, it uses that latest export; otherwise it uses the imported source.
 4. Press it. StudioCut automatically probes the latest exported file and plans a high-quality final MP4:
    - H.264 video and AAC audio when audio is retained, with quality preset **High Quality** (CRF 18).
    - Keeps the current exported video's original frame rate, resolution, duration and visible content as closely as encoding permits; creates a new file.

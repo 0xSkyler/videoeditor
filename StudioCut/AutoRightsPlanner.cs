@@ -24,7 +24,7 @@ public static class AutoRightsPlanner
         if (source == null || source.Width < 1 || source.Height < 1 || source.Duration <= 0)
             blockers.Add("Open a readable video so the editor can inspect its streams.");
         if (string.IsNullOrWhiteSpace(requested.Source) || !File.Exists(requested.Source))
-            blockers.Add("The selected exported video is missing.");
+            blockers.Add("The selected source or exported video is missing.");
         if (string.IsNullOrWhiteSpace(requested.OutputFolder) || !Directory.Exists(requested.OutputFolder))
             blockers.Add("Choose a writable output folder.");
 
