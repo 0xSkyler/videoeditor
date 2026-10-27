@@ -1,85 +1,76 @@
-# StudioCut — Offline Windows Video Editor
+# StudioCut — One-click Windows video converter
 
-## NEW: Auto Copyright-Risk Review (v0.4.0)
+**Drop a video or click Choose video → press Convert → get a new MP4.**
 
-If your video and text-to-speech narration were generated in Higgsfield, tick **Higgsfield AI narration: I confirm I can use this voice and any included music**. This lets Auto mode preserve the narration even when the generic audio-rights box is unchecked. The confirmation does not prove licensing and does not cover separately added external music. Then, after importing a video or after a regular export, click **Auto: Review & Fix Copyright Risks** to make a separately named, high-quality MP4 copy. The automated preset uses H.264/AAC, preserves the current exported video's resolution, frame rate, content and duration as closely as encoding permits, and checks the output for playable video/audio. If audio rights are unconfirmed, it asks for approval before muting **all audio including narration**. Unconfirmed visual rights block the export.
+StudioCut is a native Windows 10/11 x64 desktop application. It converts video entirely offline using FFmpeg. The v0.5 interface has **no manual editing or export parameters**: no sliders, checkboxes, audio dropdowns, effect settings, folder chooser or quality presets.
 
-**This mode does not remove copyright and does not bypass or guarantee clearance from YouTube Content ID.** Bitrate, frame-rate, codec and metadata changes cannot confer legal rights. Read [Automatic Copyright-Risk Review](docs/AUTO_COPYRIGHT_RISK_MODE.md) before use.
+## The entire workflow
 
+1. Drag a video onto the window **or** click **Choose video**.
+2. StudioCut reads the video information and enables **Convert**.
+3. Click **Convert**. A progress bar shows encoding status; **Cancel** is available during an active conversion.
+4. StudioCut automatically saves a new file in **Videos/StudioCut Exports**. If Videos isn't accessible, it tries Documents or the user home folder.
+5. When finished, click **Open output folder** to see the MP4. The source file remains unchanged.
 
-Native .NET 8 WPF application. Locally processes source video with FFmpeg; no accounts, web services, subscriptions or telemetry.
+## Automatic export settings
 
-## Features
+| Setting | Automatic behavior |
+| --- | --- |
+| Video container | MP4 |
+| Video codec and pixel format | H.264 (libx264), 8-bit yuv420p |
+| Video quality | CRF 18 (High Quality) |
+| Audio codec | AAC at 192 kbps per encoded track |
+| Narration and soundtrack | Preserve all source audio tracks, including Higgsfield AI narration |
+| Frame rate, frame dimensions, runtime | Preserve original values where compatible with H.264; odd dimensions may be padded by 1 pixel |
+| Color | Very slight 1% contrast and saturation adjustment |
+| Metadata | Attempt to copy source metadata (including attribution/provenance) |
+| Hardware | Conservative CPU encoding to avoid GPU-compatibility errors |
+| Files | Unique `*_converted_*.mp4` filename; source never overwritten |
+| Processing | Local FFmpeg; no upload, cloud service, API key or telemetry |
 
-- Drag/drop source, probe video metadata, native playback preview (preview shows original source)
-- Trim, crop, scale, adjust brightness/contrast/saturation, change FPS, optional fade and image overlay
-- Keep, mute, replace or mix audio. Audio track selection, volume, bass/treble EQ, frequency-domain noise reduction, voice compression, loudness normalization, audio fades
-- MP4/MOV/MKV, H.264/AAC, quality presets, optional NVENC GPU encoding (CPU fallback)
-- Permission confirmations, media validation, disk space check, progress and cancel; failed output is deleted
-- Offline processing. No promise of copyright clearance, watermark bypass or Content ID avoidance
+**Important:** Re-encoding and minor video changes are compatibility/quality operations. They do not make copyrighted material original, bypass YouTube Content ID, or reliably hide that a video was AI-generated. Use only content you have permission to publish. The app cannot validate music licenses or identify AI-origin claims. Confirm usage rights for your Higgsfield-generated content and voice under the applicable service terms.
 
-## Download and run
+## Download / install
 
-1. Open **Actions → Windows build** and download the `StudioCut-win-x64` artifact from a successful main-branch build. For tagged releases (`v*`), see GitHub Releases.
-2. Extract the ZIP completely; keep `tools/ffmpeg.exe` and `tools/ffprobe.exe` alongside the app executable.
-3. Run `StudioCut.exe` on Windows 10/11 x64. The app is self-contained (does not require separately installing .NET).
-4. Select a video, edit options, select output folder, confirm rights, and choose **Start Convert**.
+1. Download the `StudioCut-win-x64.zip` file from [GitHub Releases](https://github.com/0xSkyler/videoeditor/releases).
+2. Extract the entire ZIP to a folder (do not run from inside the ZIP).
+3. Run `StudioCut.exe`.
+4. Keep the bundled `tools/ffmpeg.exe` and `tools/ffprobe.exe` next to the executable.
 
-## Building locally
+No separate .NET installation is required for the self-contained Windows x64 package.
 
-Install .NET 8 SDK on Windows, and place `ffmpeg.exe` and `ffprobe.exe` in `StudioCut/tools/` if running from a local publish folder. `dotnet build StudioCut/StudioCut.csproj` builds the WPF editor. FFmpeg must be on the executable's relative `tools/` directory or system PATH.
+## Build and tests
+
+Requirements: .NET 8 SDK on Windows. For development, put FFmpeg/FFprobe in `StudioCut/tools/` or on PATH.
+
+```powershell
+dotnet build StudioCut/StudioCut.csproj -c Release
+dotnet run --project StudioCut.Tests/StudioCut.Tests.csproj -c Release
+dotnet run --project StudioCut.Scenarios/StudioCut.Scenarios.csproj -c Release
+dotnet run --project StudioCut.GuiTests/StudioCut.GuiTests.csproj -c Release
+```
+
+GitHub Actions builds the Windows executable, runs real FFmpeg conversion/regression cases, checks the WPF import/convert workflow, launches the packaged application and verifies ZIP integrity. Tests use local synthetic media, not licensed Higgsfield account material, and cannot certify actual YouTube claim outcomes.
 
 ## Limitations
 
-- Preview is the unchanged original and depends on Windows' installed media codecs. Export uses FFmpeg and supports more codecs than preview.
-- Mixing narration and background music works when narration is in a separate source audio stream, or if the original audio is kept and background music is added. It cannot isolate narration from a pre-mixed soundtrack.
-- Audio and video fades apply to the start/end of trimmed output; complex timeline transitions are not included.
-- Hardware acceleration currently supports NVIDIA NVENC; if it fails, encoding retries with x264 on CPU.
-- Music selection must be licensed by the user. Exporting a file does not make copyrighted material original or guarantee platform approval.
-- Windows CI currently reuses pinned FFmpeg executables from the verified StudioCut v0.2.0 release; these were originally obtained from a Gyan.dev build. Distribution must comply with the included FFmpeg build's license; inspect build configuration and attach applicable licenses before redistributing.
+- The new v0.5 simplified app intentionally removes manual audio, crop, overlays, audio replacement, FPS and quality settings. For advanced editing, refer to the older v0.4.2 release.
+- Preview is an optional still image; there is no timeline or video playback control.
+- The color and codec conversion can cause some quality loss even at high quality. Existing HDR/10-bit media is converted to 8-bit H.264 for compatibility.
+- Output audio is re-encoded; each retained audio track is kept, but specialized audio metadata and chapter structures may not survive.
+- Hardware GPU encoding, long 4K processing, subjective voice-quality evaluations and actual YouTube uploads are not proven by synthetic CI tests.
+- [FFmpeg third-party notices](THIRD_PARTY_NOTICES.md) apply to redistribution.
 
 ## Changelog
 
-### 0.4.2
-- Tested 14 distinct video/audio scenarios (94 assertions) on GitHub-hosted Windows, all passing. Test evidence includes JSON, per-case timings, file sizes and logs.
-- Preserve all individually confirmed source audio tracks in Auto mode, including alternative narration languages, instead of accidentally dropping all but track 1.
-- Retain known Higgsfield-style synthetic narration without arbitrary fingerprint changes, and ensure permission for generated narration does not automatically authorize third-party music added later.
-- Verify a real in-progress cancellation removes any partially encoded MP4 while leaving the input intact.
-- Added dedicated cross-format cases: vertical 9:16, 1280x720 at 29.97 FPS, AVI MPEG-4/PCM to H.264/AAC, audio-only and invalid inputs, silent files, missing rights, mixed-audio soundtrack and repeated output uniqueness.
-- Windows CI additionally verifies 110 engine assertions, 95 automated WPF GUI assertions and portable EXE startup. Not a substitute for real 4K or physical GPU stress tests.
+### 0.5.0 — Complete UI simplification
+- New one-screen drag-and-drop app with **Choose video** and **Convert** as the only primary actions.
+- Removed every manual editing, audio, color, speed, resolution, quality, rights-confirmation and output-folder input.
+- One automatic high-quality MP4 pipeline, preserving Higgsfield-style generated narration and all other audio tracks.
+- Optional Cancel and Open output folder controls provide safety without configuration.
+- Unique exports in the user's Videos folder; no source overwrite.
+- User-journey tests updated to verify the absence of manual input controls.
 
-### 0.4.1
-- Add an explicit Higgsfield AI narration permission confirmation, so original TTS speech is retained on regular and automatic exports.
-- Auto review of a previous video only extends Higgsfield audio permission when it was exported without separately mixed music; music added outside Higgsfield still needs a separate license confirmation.
-- Keeps original AI voice and video quality as closely as H.264/AAC re-encoding allows. This is not a Content ID avoidance guarantee.
-- Reset the narration permission on each new import or newly selected external music.
-- Test original synthetic narration is preserved by automatic export without generic audio approval.
-
-### 0.4.0
-- New post-export **Auto: Review & Fix Copyright Risks** button; also works directly on an imported source.
-- Confirmed audio is preserved; unconfirmed audio can be muted only with explicit user confirmation. Missing visual rights block the action.
-- New MP4 output uses quality-focused H.264/AAC and retains dimensions, FPS, duration, and scene content as closely as possible.
-- Re-checks resulting video codec, audio codec, duration, and usability; gives the reviewed copy a new, recognizable filename without overwriting the original.
-- Automated rights plans and real WPF button flows are covered by Windows CI. No promise of copyright removal or YouTube Content ID clearance.
-
-### 0.3.0
-- WPF playback poster, edited-frame preview, music delay, captions, smarter overlays and repeated Windows GUI test coverage.
-
-### 0.1.0
-- Initial desktop editing and export workflow; rights checks, quality presets, offline FFmpeg, WPF preview, GitHub Actions Windows packaging.
-
-## Verified testing and exports
-
-On Windows, run `dotnet run --project StudioCut.Tests/StudioCut.Tests.csproj -c Release` for repeatable media conversion and validator tests. GitHub Actions build #8 passed 77 C# assertions and 7 real Windows FFmpeg exports. A separate Linux FFmpeg smoke suite ran 3 repeat rounds of 5 exports; these results do not replace manual Windows GUI, real GPU-encoding, or long-form stress testing. Copyright ownership remains the user's responsibility; re-encoding does not clear third-party rights.
-
-See `THIRD_PARTY_NOTICES.md` for the licensed FFmpeg components included in Windows builds.
-
-## Updated user experience
-- **Preview edited frame** renders the selected crop, color, logo, and short caption as a still without saving a permanent video. Audio and animated fades cannot be represented by a still.
-- Each newly imported video resets trim and crop values to avoid hidden out-of-range settings; rights approvals still must be re-confirmed.
-- Exports are re-probed before the UI displays success. Failed or invalid outputs are deleted when possible.
-- The included Windows GUI acceptance suite tests actual WPF buttons, playback poster generation, edits, and export files. It does not replace human-operated mouse/keyboard checks or hardware GPU benchmarks.
-
-## Performance optimization
-
-Static logo overlays are now decoded once and held by FFmpeg for the duration of the video instead of looping the image every frame. This avoids repeated decoding of large images. For memory-sensitive editing, the CPU H.264 encoder and complex filter graph use two FFmpeg worker threads. A representative 12-second, 960×540 headless Linux FFmpeg comparison with a 2400×1400 static logo changed from 6.78s/400.3MB peak RSS to 1.57s/209.4MB. These are isolated benchmark results, not guarantees on a Windows user's machine.
+### 0.4.2 — Previous advanced editor
+- 14 Windows media-use-case scenarios, multi-audio preservation, live cancellation testing and rights-aware export.
+- The advanced manual UI is preserved only in the older v0.4.2 GitHub release and is not part of this version.
