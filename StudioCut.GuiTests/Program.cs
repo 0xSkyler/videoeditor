@@ -232,6 +232,8 @@ internal static class Program
         string originalHash = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(source)));
         var convert = Ui<Button>(window, "ConvertButton");
         Check(!convert.IsEnabled, "initial Start Convert disabled");
+        var autoReviewButton = Ui<Button>(window, "AutoRightsButton");
+        Check(!autoReviewButton.IsEnabled, "copyright-risk auto mode requires a prior exported video");
         await LoadAsync(window, source);
         Check(Ui<TextBlock>(window, "VideoInfo").Text.Contains("320 × 180"), "source dimensions visible");
         Check(Ui<Image>(window, "PosterImage").Source is BitmapSource poster && poster.PixelWidth > 0, "first-frame poster generated from actual source");
@@ -305,6 +307,48 @@ internal static class Program
         Screenshot(window, Path.Combine(dir, "wpf-user-workflow.png"));
         var second = await ExportViaUiAsync(window, dir, "repeat export without overwrite");
         Check(first != second, "two consecutive exports have unique filenames");
+        Check(autoReviewButton.IsEnabled, "automated rights review becomes available after exporting");
+        Ui<CheckBox>(window, "RightsAudio").IsChecked = false;
+        Check(autoReviewButton.IsEnabled && !convert.IsEnabled,
+            "auto review stays available to mute uncertain audio while normal export blocks");
+        Ui<CheckBox>(window, "RightsAudio").IsChecked = true;
+        var beforeAuto = Directory.GetFiles(dir, "*_auto_reviewed_*.mp4").ToHashSet();
+        var autoTimer = Stopwatch.StartNew();
+        Click(autoReviewButton);
+        bool autoComplete = false;
+        for (int n = 0; n < 250; n++)
+        {
+            string current = Ui<TextBlock>(window, "Status").Text;
+            if (current.StartsWith("Auto-review copy completed.", StringComparison.Ordinal))
+            { autoComplete = true; break; }
+            if (current is "Automatic review failed" or "Cancelled. No incomplete output was kept.")
+                break;
+            await Task.Delay(150);
+        }
+        autoTimer.Stop();
+        Check(autoComplete, "GUI auto button finishes a second high-quality video export");
+        var newAuto = Directory.GetFiles(dir, "*_auto_reviewed_*.mp4")
+            .Where(path => !beforeAuto.Contains(path)).ToArray();
+        Check(newAuto.Length == 1, "auto mode creates exactly one new reviewed MP4");
+        string reviewedFile = newAuto[0];
+        var reviewedVideo = await MediaEngine.ProbeAsync(reviewedFile);
+        var inputVideo = await MediaEngine.ProbeAsync(second);
+        Check(reviewedVideo.AudioTracks == inputVideo.AudioTracks && reviewedVideo.AudioTracks == 1,
+            "automatic review preserves audio already confirmed as licensed");
+        Check(reviewedVideo.Width == inputVideo.Width && reviewedVideo.Height == inputVideo.Height,
+            "auto mode preserves completed video's frame dimensions");
+        Check(Math.Abs(reviewedVideo.Duration - inputVideo.Duration) < .15,
+            "auto mode preserves the previous export's duration");
+        Check(Ui<TextBlock>(window, "OutputInfo").Text.Contains(Path.GetFileName(reviewedFile)),
+            "auto export becomes the displayed final file");
+        Check(Ui<TextBlock>(window, "AutoRightsInfo").Text.Contains("Content ID claims remain possible."),
+            "final interface explicitly states that claims remain possible");
+        Check(!autoReviewButton.IsEnabled, "automatic review is not repeated indefinitely on the same result");
+        measurements.Add(new {
+            scenario = "post-export copyright-risk review", seconds = Math.Round(autoTimer.Elapsed.TotalSeconds,3),
+            input_bytes = new FileInfo(second).Length, output_bytes = new FileInfo(reviewedFile).Length,
+            video_width = reviewedVideo.Width, audio_tracks = reviewedVideo.AudioTracks
+        });
         Check(Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(source))) == originalHash,
             "original source bytes unchanged");
 
