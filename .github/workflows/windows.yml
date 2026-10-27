@@ -79,9 +79,30 @@ jobs:
           if (-not (Test-Path dist/StudioCut.exe)) { throw 'Executable missing' }
           if (-not (Test-Path dist/tools/ffprobe.exe)) { throw 'ffprobe missing' }
           & dist/tools/ffmpeg.exe -version | Select-Object -First 1
+          $app = Start-Process -FilePath (Resolve-Path dist/StudioCut.exe).Path -PassThru
+          try {
+            Start-Sleep -Seconds 4
+            $app.Refresh()
+            if ($app.HasExited) { throw "Portable StudioCut.exe quit unexpectedly (exit $($app.ExitCode))." }
+            Write-Host ("Packaged StudioCut.exe launched successfully; working set {0:N1} MB" -f ($app.WorkingSet64 / 1MB))
+          }
+          finally {
+            $app.Refresh()
+            if (-not $app.HasExited) { Stop-Process -Id $app.Id -Force }
+          }
       - name: Package
         shell: pwsh
         run: Compress-Archive -Path dist/* -DestinationPath StudioCut-win-x64.zip
+      - name: Verify release ZIP contents
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Expand-Archive StudioCut-win-x64.zip -DestinationPath release-integrity
+          foreach ($required in @('StudioCut.exe','tools/ffmpeg.exe','tools/ffprobe.exe','tools/GPL-3.0.txt','THIRD_PARTY_NOTICES.md')) {
+            if (-not (Test-Path (Join-Path 'release-integrity' $required))) { throw "Archive missing $required" }
+          }
+          Write-Host "Verified package components and ZIP extraction."
+          Get-FileHash StudioCut-win-x64.zip -Algorithm SHA256
       - uses: actions/upload-artifact@v4
         with:
           name: StudioCut-win-x64

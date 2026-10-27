@@ -6,5 +6,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>StudioCut</AssemblyName>
+    <Version>0.3.0</Version>
+    <FileVersion>0.3.0.0</FileVersion>
   </PropertyGroup>
 </Project>
