@@ -32,8 +32,15 @@ public static class MediaEngine
         foreach (var s in doc.RootElement.GetProperty("streams").EnumerateArray())
         {
             var kind = s.GetProperty("codec_type").GetString();
-            if (kind == "audio") d.AudioTracks++;
+            if (kind == "audio")
+            {
+                d.AudioTracks++;
+                if (d.AudioCodec.Length == 0 && s.TryGetProperty("codec_name", out var audioCodec))
+                    d.AudioCodec = audioCodec.GetString() ?? "";
+            }
             if (kind != "video" || d.Width != 0) continue;
+            if (s.TryGetProperty("codec_name", out var codec))
+                d.VideoCodec = codec.GetString() ?? "";
             d.Width = s.GetProperty("width").GetInt32(); d.Height = s.GetProperty("height").GetInt32();
             if (s.TryGetProperty("avg_frame_rate", out var fps))
             {
@@ -360,6 +367,10 @@ public static class MediaEngine
                 throw new IOException("The exported video duration does not match the requested trim.");
             if (result.Width % 2 != 0 || result.Height % 2 != 0)
                 throw new IOException("The exported H.264 dimensions are not supported.");
+            if (!string.Equals(result.VideoCodec, "h264", StringComparison.OrdinalIgnoreCase))
+                throw new IOException("The exported video does not contain the expected H.264 stream.");
+            if (audioWanted && !string.Equals(result.AudioCodec, "aac", StringComparison.OrdinalIgnoreCase))
+                throw new IOException("The exported audio is not encoded as AAC.");
             return output;
         }
         catch

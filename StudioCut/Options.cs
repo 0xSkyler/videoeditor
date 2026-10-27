@@ -39,6 +39,8 @@ public sealed class Options
 }
 public sealed class MediaDetails
 {
+    public string VideoCodec { get; set; } = "";
+    public string AudioCodec { get; set; } = "";
     public double Duration { get; set; }
     public int Width { get; set; }
     public int Height { get; set; }
