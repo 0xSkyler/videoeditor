@@ -9,7 +9,7 @@ internal static class Program
 {
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
     private static readonly List<ScenarioResult> Results = new();
-    private static string directory = "", audioVoice = "", music = "", silent = "", portrait = "", mixed = "", dual = "", avi = "", wide = "";
+    private static string directory = "", audioVoice = "", music = "", silent = "", portrait = "", mixed = "", dual = "", avi = "", wide = "", longVideo = "";
     private static int assertions;
 
     private sealed record ScenarioResult(
@@ -59,6 +59,7 @@ internal static class Program
         dual = Path.Combine(directory, "two narration languages.mkv");
         avi = Path.Combine(directory, "old input MPEG4 PCM.avi");
         wide = Path.Combine(directory, "Landscape 29.97fps.mp4");
+        longVideo = Path.Combine(directory, "Long render for cancellation.mp4");
 
         await Ffmpeg("-f","lavfi","-i","testsrc2=size=640x360:rate=30",
             "-f","lavfi","-i","sine=frequency=440:sample_rate=44100",
@@ -83,6 +84,10 @@ internal static class Program
             "-f","lavfi","-i","sine=frequency=660:sample_rate=44100",
             "-t","1.9","-c:v","libx264","-preset","ultrafast","-crf","30",
             "-pix_fmt","yuv420p","-c:a","aac","-b:a","96k",wide);
+        await Ffmpeg("-f","lavfi","-i","testsrc2=size=960x540:rate=30",
+            "-f","lavfi","-i","sine=frequency=580:sample_rate=44100",
+            "-t","9","-c:v","libx264","-preset","ultrafast","-crf","30",
+            "-pix_fmt","yuv420p","-c:a","aac","-b:a","64k",longVideo);
         Console.WriteLine("Synthetic offline video fixtures generated; no real Higgsfield data is used.");
     }
 
@@ -263,6 +268,29 @@ internal static class Program
             catch(OperationCanceledException) { stopped=true; }
             Assert(stopped,"pre-cancelled user request stops before FFmpeg starts");
             return ("","No partial file after cancellation.");
+        });
+
+        await ScenarioAsync("Cancel an in-progress longer export and clean partial output",async () => {
+            var d=await MediaEngine.ProbeAsync(longVideo);
+            var plan=AutoRightsPlanner.Create(Input(longVideo),d);
+            Assert(plan.CanExport && plan.Export!=null,"long-form render accepted for cancellation test");
+            var existing=Directory.GetFiles(directory,"*_auto_reviewed_*").ToHashSet();
+            using var stop=new CancellationTokenSource();
+            bool progressSeen=false, interrupted=false;
+            try {
+                await MediaEngine.ExportAsync(plan.Export!,d,p=> {
+                    if(p>=.035 && !stop.IsCancellationRequested) {
+                        progressSeen=true;
+                        stop.Cancel();
+                    }
+                },stop.Token,"auto_reviewed");
+            }
+            catch(OperationCanceledException) { interrupted=true; }
+            Assert(progressSeen,"user cancellation requested after actual encoder progress");
+            Assert(interrupted,"in-progress FFmpeg export reports user cancellation");
+            var partial=Directory.GetFiles(directory,"*_auto_reviewed_*").Where(x=>!existing.Contains(x)).ToArray();
+            Assert(partial.Length==0,"cancelled run leaves no partial output file");
+            return ("","Cancellation occurred after real encoder progress, not before invocation.");
         });
 
         await ScenarioAsync("Original source remains byte-for-byte unchanged",async () => {
