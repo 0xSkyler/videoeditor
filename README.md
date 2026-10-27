@@ -63,6 +63,14 @@ GitHub Actions builds the Windows executable, runs real FFmpeg conversion/regres
 
 ## Changelog
 
+### 0.5.1 — Final handover verification
+- Windows CI passed **389 automated assertions**: 110 media-engine, 118 media-scenario and 161 WPF GUI assertions.
+- Extended diverse-media coverage to **26 scenarios**: 10-bit input, MP3 album-cover false positives, 321x181 odd dimensions, sub-second videos, Unicode/emoji filenames, source metadata, source deletion and repeated exports.
+- One-click WPF acceptance now drives **eight real video exports** plus picker cancellations, injected native picker errors, single/multiple-file drop paths, output-folder action, in-progress Cancel and closing during encoding.
+- Fixed a missing-source silent failure, infinite/hung probing risk (bounded at 30 seconds), album-cover-only false video detection and invalid Unicode filename truncation.
+- Invalid media now displays short, actionable text rather than raw FFmpeg stderr and internal file paths.
+- Full acceptance matrix, limitations and evidence are in [Final QA and handover](docs/FINAL_HANDOVER_v0.5.1.md).
+
 ### 0.5.0 — Complete UI simplification
 - New one-screen drag-and-drop app with **Choose video** and **Convert** as the only primary actions.
 - Removed every manual editing, audio, color, speed, resolution, quality, rights-confirmation and output-folder input.
