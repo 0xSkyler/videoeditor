@@ -26,7 +26,7 @@ internal static class Program
             try
             {
                 await TestUserWorkflowAsync(window);
-                Console.WriteLine($"SIMPLIFIED GUI RESULT: PASS; {assertions} assertions, 5 video exports");
+                Console.WriteLine($"SIMPLIFIED GUI RESULT: PASS; {assertions} assertions, 8 video exports");
             }
             catch (Exception e)
             {
@@ -120,6 +120,9 @@ internal static class Program
         string portrait = Path.Combine(dir, "portrait.mp4");
         string multiple = Path.Combine(dir, "two voice tracks.mkv");
         string heavy = Path.Combine(dir, "long render to cancel.mp4");
+        string unicode = Path.Combine(dir, "বাংলা_视频_🎬_narration.mp4");
+        string tiny = Path.Combine(dir, "quarter-second clip.mp4");
+        string odd = Path.Combine(dir, "odd 321x181.mkv");
         await FFmpegAsync("-f","lavfi","-i","testsrc2=size=320x180:rate=24",
             "-f","lavfi","-i","sine=frequency=440:sample_rate=44100",
             "-t","2.8","-c:v","libx264","-preset","ultrafast","-crf","24",
@@ -136,7 +139,12 @@ internal static class Program
             "-f","lavfi","-i","sine=frequency=700:sample_rate=44100",
             "-t","12","-c:v","libx264","-preset","ultrafast","-crf","30",
             "-pix_fmt","yuv420p","-c:a","aac","-b:a","64k",heavy);
-        return new[] { voiced, silent, portrait, multiple, heavy };
+        File.Copy(voiced, unicode, true);
+        await FFmpegAsync("-f","lavfi","-i","testsrc2=size=320x180:rate=24",
+            "-t","0.25","-c:v","libx264","-preset","ultrafast","-an",tiny);
+        await FFmpegAsync("-f","lavfi","-i","testsrc=size=321x181:rate=24",
+            "-t","1","-c:v","ffv1","-pix_fmt","bgr0",odd);
+        return new[] { voiced, silent, portrait, multiple, heavy, unicode, tiny, odd };
     }
 
     private static int CountManualControls(DependencyObject parent)
@@ -193,8 +201,9 @@ internal static class Program
             scenario + ": codecs standardized to H.264 and AAC");
         Check(result.AudioTracks == sourceDetails.AudioTracks,
             scenario + ": all original audio tracks retained");
-        Check(result.Width == sourceDetails.Width && result.Height == sourceDetails.Height,
-            scenario + ": original frame dimensions preserved");
+        Check(result.Width == sourceDetails.Width + sourceDetails.Width % 2 &&
+              result.Height == sourceDetails.Height + sourceDetails.Height % 2,
+            scenario + ": frame dimensions retained or minimally padded to even H.264 size");
         Check(Math.Abs(result.Fps - sourceDetails.Fps) < .3,
             scenario + ": source frame rate preserved");
         Check(Math.Abs(result.Duration - sourceDetails.Duration) < .4,
@@ -319,6 +328,28 @@ internal static class Program
         Check(dualAudio.AudioTracks == 2,"multi-language fixture includes two separate audio tracks");
         await ConvertViaButtonAsync(window,"two-track narration",dualAudio);
 
+        await ChooseViaButtonAsync(window,media[5]);
+        var unicodeSource = await MediaEngine.ProbeAsync(media[5]);
+        string unicodeOutput = await ConvertViaButtonAsync(window,
+            "unicode-name creator import",unicodeSource);
+        Check(Path.GetFileName(unicodeOutput).Contains("🎬"),
+            "WPF choose-and-convert preserves user Unicode filename");
+
+        await DropPathsAsync(window,media[6]);
+        var tinySource = await MediaEngine.ProbeAsync(media[6]);
+        string tinyOutput = await ConvertViaButtonAsync(window,
+            "sub-second short-form clip",tinySource);
+        Check((await MediaEngine.ProbeAsync(tinyOutput)).Duration < .8,
+            "GUI can convert a video shorter than one second");
+
+        await DropPathsAsync(window,media[7]);
+        var oddSource = await MediaEngine.ProbeAsync(media[7]);
+        string oddOutput = await ConvertViaButtonAsync(window,
+            "odd 321x181 source with automatic padding",oddSource);
+        var oddResult = await MediaEngine.ProbeAsync(oddOutput);
+        Check(oddResult.Width == 322 && oddResult.Height == 182,
+            "GUI output pads a 321x181 source to the nearest compatible even dimensions");
+
         // Button-driven cancellation with a real live FFmpeg process.
         await LoadAsync(window,media[4]);
         var outputDir = SimpleConvertPlan.ResolveOutputFolder();
@@ -375,11 +406,36 @@ internal static class Program
             "failed import does not expose a stale export");
         SaveScreenshot(window,Path.Combine(dir,"invalid-input-simple-ui.png"));
 
+        // Closing the window while FFmpeg runs must cancel the converter and clean its output.
+        var closeWindow = new MainWindow();
+        closeWindow.Show();
+        await LoadAsync(closeWindow,media[4]);
+        var beforeClose = Directory.GetFiles(outputDir,"long render to cancel_converted_*.mp4").ToHashSet();
+        Click(Ui<Button>(closeWindow,"ConvertButton"));
+        bool startedBeforeClose = false;
+        for (int n = 0; n < 150; n++)
+        {
+            if (Ui<ProgressBar>(closeWindow,"Progress").Value > .05)
+            { startedBeforeClose = true; break; }
+            await Task.Delay(40);
+        }
+        Check(startedBeforeClose, "closing-window test waited until actual FFmpeg progress");
+        closeWindow.Close();
+        bool stoppedOnClose = false;
+        for (int n = 0; n < 150; n++)
+        {
+            bool noNewFiles = Directory.GetFiles(outputDir,"long render to cancel_converted_*.mp4")
+                .All(path => beforeClose.Contains(path));
+            if (noNewFiles) { stoppedOnClose = true; break; }
+            await Task.Delay(60);
+        }
+        Check(stoppedOnClose, "closing a converting window stops FFmpeg and leaves no partial output");
+
         var report = new {
             date_utc = DateTimeOffset.UtcNow,
             assertions,
             exports = observations,
-            notes = "Automated WPF controls and real FFmpeg processes on Windows; native file picker and Explorer are injected at their boundaries, not manually operated with a mouse. Drag/drop path processing is exercised but not the physical Windows pointer drag gesture.",
+            notes = "Windows WPF click events, simulated file-dialog returns, drag/drop handler, cancellation, close-while-exporting, and real FFmpeg conversions. The native picker, Explorer and physical mouse drag gesture were not operated manually.",
             no_manual_options = CountManualControls(window) == 0
         };
         await File.WriteAllTextAsync(Path.Combine(dir,"results.json"),
