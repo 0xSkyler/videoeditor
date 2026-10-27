@@ -40,6 +40,16 @@ Install .NET 8 SDK on Windows, and place `ffmpeg.exe` and `ffprobe.exe` in `Stud
 
 ## Changelog
 
+### 0.4.0
+- New post-export **Auto: Review & Fix Copyright Risks** button; also works directly on an imported source.
+- Confirmed audio is preserved; unconfirmed audio can be muted only with explicit user confirmation. Missing visual rights block the action.
+- New MP4 output uses quality-focused H.264/AAC and retains dimensions, FPS, duration, and scene content as closely as possible.
+- Re-checks resulting video codec, audio codec, duration, and usability; gives the reviewed copy a new, recognizable filename without overwriting the original.
+- Automated rights plans and real WPF button flows are covered by Windows CI. No promise of copyright removal or YouTube Content ID clearance.
+
+### 0.3.0
+- WPF playback poster, edited-frame preview, music delay, captions, smarter overlays and repeated Windows GUI test coverage.
+
 ### 0.1.0
 - Initial desktop editing and export workflow; rights checks, quality presets, offline FFmpeg, WPF preview, GitHub Actions Windows packaging.
 

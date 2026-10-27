@@ -113,4 +113,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          gh release create v0.3.0 StudioCut-win-x64.zip --target $env:GITHUB_SHA --title 'StudioCut v0.3.0' --notes 'Windows x64 editor with WPF GUI user-workflow tests, on-demand edited still preview, trimmed/cropped source-reset safety, audio mixing/music delay, captions, and exported-file verification. Extract ZIP and run StudioCut.exe. Includes FFmpeg/FFprobe and third-party notices.'
+          gh release create v0.4.0 StudioCut-win-x64.zip --target $env:GITHUB_SHA --title 'StudioCut v0.4.0' --notes 'Offline Windows x64 editor with one-click Auto Copyright-Risk Review. Creates a distinct, high-quality H.264/AAC MP4 after export or directly from an imported video. Preserves visual content and confirmed audio, or asks permission to mute unconfirmed audio; blocks missing visual rights. Re-encoding cannot remove copyright or guarantee Content ID clearance. Includes FFmpeg/FFprobe, licenses and automated Windows acceptance tests. Extract ZIP and run StudioCut.exe.'
