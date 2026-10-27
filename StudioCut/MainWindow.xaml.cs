@@ -18,7 +18,7 @@ public partial class MainWindow : Window
     private MediaDetails? details;
     private CancellationTokenSource? convertCancellation;
     private readonly DispatcherTimer playbackTimer;
-    private bool busy, initialized, checkingAsset, updatingSeek, previewBusy;
+    private bool busy, initialized, checkingAsset, updatingSeek, previewBusy, autoReviewed;
     private int loadVersion;
 
     public MainWindow()
@@ -97,6 +97,8 @@ public partial class MainWindow : Window
         }
         else EstimateText.Text = "";
         OpenExportButton.IsEnabled = File.Exists(lastOutput);
+        AutoRightsButton.IsEnabled = !busy && !checkingAsset && !previewBusy
+            && !autoReviewed && File.Exists(lastOutput);
     }
 
     private void OptionChanged(object sender, RoutedEventArgs e) => Refresh();
@@ -152,7 +154,9 @@ public partial class MainWindow : Window
         source = path;
         details = null;
         lastOutput = "";
+        autoReviewed = false;
         OutputInfo.Text = "";
+        AutoRightsInfo.Text = "Auto mode runs on your last export. It cannot remove copyright, verify licenses or bypass Content ID.";
         VideoInfo.Text = "";
         Preview.Stop();
         Preview.Source = null;
@@ -373,16 +377,91 @@ public partial class MainWindow : Window
 
     private async void ConvertClick(object sender, RoutedEventArgs e)
     {
-        if (busy || checkingAsset || details == null) return;
+        if (busy || checkingAsset || previewBusy || details == null) return;
         var options = ReadOptions();
         if (MediaEngine.Validate(options, details).Count > 0) { Refresh(); return; }
+        await ExecuteExportAsync(options, details, false, null);
+    }
+
+    private async void AutoRightsClick(object sender, RoutedEventArgs e)
+    {
+        if (busy || checkingAsset || previewBusy || autoReviewed || !File.Exists(lastOutput)) return;
+
+        string exportedSource = lastOutput;
+        MediaDetails media;
+        checkingAsset = true;
+        AutoRightsInfo.Text = "Checking the last exported video's streams before automatic processing...";
+        Refresh();
+        try
+        {
+            media = await MediaEngine.ProbeAsync(exportedSource);
+        }
+        catch (Exception ex)
+        {
+            AutoRightsInfo.Text = "Could not inspect the last export. No changes were made.";
+            MessageBox.Show(ex.Message, "Auto copyright-risk review", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+        finally
+        {
+            checkingAsset = false;
+            Refresh();
+        }
+
+        // Rights are supplied by the user. No offline program can reliably
+        // determine whether a track or image is copyrighted by someone else.
+        var current = new Options
+        {
+            Source = exportedSource,
+            OutputFolder = folder,
+            RightsVideo = RightsVideo.IsChecked == true,
+            RightsAudio = RightsAudio.IsChecked == true
+        };
+        AutoRightsPlan plan = AutoRightsPlanner.Create(current, media);
+        if (!plan.CanExport || plan.Export is not Options autoOptions)
+        {
+            string reason = string.Join(Environment.NewLine, plan.Blockers);
+            AutoRightsInfo.Text = "Blocked: " + reason;
+            MessageBox.Show(reason + Environment.NewLine + Environment.NewLine
+                + "Changing bitrate, codec or frames cannot repair missing usage rights.",
+                "Rights must be confirmed", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        if (plan.RemovesUnconfirmedAudio)
+        {
+            var response = MessageBox.Show(
+                "No rights confirmation was provided for the audio in the exported video."
+                + Environment.NewLine + Environment.NewLine
+                + "Auto mode can mute ALL audio, including your narration and any music. "
+                + "It cannot separate licensed speech from unlicensed music in an already mixed track."
+                + Environment.NewLine + Environment.NewLine
+                + "Continue with a completely silent copy?",
+                "Confirm automatic audio removal",
+                MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (response != MessageBoxResult.Yes)
+            {
+                AutoRightsInfo.Text = "Auto review cancelled. Your previous export is unchanged.";
+                return;
+            }
+        }
+
+        AutoRightsInfo.Text = plan.RemovesUnconfirmedAudio
+            ? "Creating high-quality MP4 with all unconfirmed audio removed. No copyright clearance is implied."
+            : "Creating high-quality MP4 with confirmed audio preserved. No copyright clearance is implied.";
+        await ExecuteExportAsync(autoOptions, media, true, plan);
+    }
+
+    private async Task ExecuteExportAsync(Options options, MediaDetails media, bool automatic, AutoRightsPlan? plan)
+    {
+        if (busy) return;
         busy = true;
-        lastOutput = "";
-        OutputInfo.Text = "";
+        string previousOutput = lastOutput;
+        if (!automatic) OutputInfo.Text = "";
         convertCancellation = new CancellationTokenSource();
         CancelButton.IsEnabled = true;
         Progress.Value = 0;
-        Status.Text = "Encoding...";
+        Status.Text = automatic ? "Auto-review encoding..." : "Encoding...";
         Refresh();
         bool finished = false;
         try
@@ -391,26 +470,47 @@ public partial class MainWindow : Window
             {
                 if (!busy || finished) return;
                 Progress.Value = p * 100;
-                Status.Text = $"Encoding {p:P0}";
+                Status.Text = automatic ? $"Auto-review encoding {p:P0}" : $"Encoding {p:P0}";
             });
-            string output = await MediaEngine.ExportAsync(options, details,
-                p => ((IProgress<double>)progress).Report(p), convertCancellation.Token);
+            string output = await MediaEngine.ExportAsync(options, media,
+                p => ((IProgress<double>)progress).Report(p),
+                convertCancellation.Token, automatic ? "auto_reviewed" : "edited");
             finished = true;
             lastOutput = output;
+            autoReviewed = automatic;
             Progress.Value = 100;
             double size = new FileInfo(output).Length / 1048576.0;
             OutputInfo.Text = $"Saved: {output} ({size:0.0} MB)";
-            Status.Text = "Completed. Open the exported video or folder to inspect it.";
+            Status.Text = automatic
+                ? "Auto-review copy completed. Check the result and your licenses before uploading."
+                : "Completed. Open the exported video or folder to inspect it.";
+            if (automatic)
+            {
+                string track = plan?.RemovesUnconfirmedAudio == true
+                    ? "Unconfirmed audio muted, including any narration."
+                    : media.AudioTracks == 0 ? "Silent source remained silent." : "Confirmed audio retained.";
+                AutoRightsInfo.Text = "Completed: MP4 H.264/AAC where applicable; source resolution and FPS preserved. "
+                    + track + " Copyright NOT independently cleared; Content ID claims remain possible.";
+            }
+            else
+            {
+                AutoRightsInfo.Text = "Initial export ready. Auto review can re-encode a copy and mute unconfirmed audio, "
+                    + "but cannot remove copyrighted material or guarantee Content ID clearance.";
+            }
         }
         catch (OperationCanceledException)
         {
             finished = true;
+            lastOutput = previousOutput;
             Status.Text = "Cancelled. No incomplete output was kept.";
+            if (automatic) AutoRightsInfo.Text = "Automatic review cancelled. Original export remains unchanged.";
         }
         catch (Exception ex)
         {
             finished = true;
-            Status.Text = "Export failed";
+            lastOutput = previousOutput;
+            Status.Text = automatic ? "Automatic review failed" : "Export failed";
+            if (automatic) AutoRightsInfo.Text = "Auto mode failed. Original export remains unchanged.";
             MessageBox.Show(ex.Message, "Encoding error", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
