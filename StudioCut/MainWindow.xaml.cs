@@ -18,7 +18,7 @@ public partial class MainWindow : Window
     private MediaDetails? details;
     private CancellationTokenSource? convertCancellation;
     private readonly DispatcherTimer playbackTimer;
-    private bool busy, initialized, checkingAsset, updatingSeek;
+    private bool busy, initialized, checkingAsset, updatingSeek, previewBusy;
     private int loadVersion;
 
     public MainWindow()
@@ -78,10 +78,12 @@ public partial class MainWindow : Window
         if (!initialized) return;
         var options = ReadOptions();
         var errors = MediaEngine.Validate(options, details);
-        ConvertButton.IsEnabled = !busy && !checkingAsset && errors.Count == 0;
-        EditorScroll.IsEnabled = !busy && !checkingAsset;
+        ConvertButton.IsEnabled = !busy && !checkingAsset && !previewBusy && errors.Count == 0;
+        PreviewEditedButton.IsEnabled = details != null && !busy && !checkingAsset && !previewBusy;
+        EditorScroll.IsEnabled = !busy && !checkingAsset && !previewBusy;
         ValidationText.Text = busy ? "Exporting with the selected settings..."
             : checkingAsset ? "Checking selected media file..."
+            : previewBusy ? "Generating edited still preview..."
             : errors.Count == 0 ? "Ready to export. This creates a new video and keeps the source unchanged."
             : string.Join("  •  ", errors.Take(3)) + (errors.Count > 3 ? $"  •  +{errors.Count - 3} more issues" : "");
         ValidationText.Foreground = errors.Count > 0 && !busy && !checkingAsset
@@ -154,6 +156,9 @@ public partial class MainWindow : Window
         VideoInfo.Text = "";
         Preview.Stop();
         Preview.Source = null;
+        // A new file must never inherit an out-of-bounds crop or trim range.
+        TrimStart.Text = "0"; TrimEnd.Text = "0";
+        CropX.Text = "0"; CropY.Text = "0"; CropW.Text = "0"; CropH.Text = "0";
         PosterImage.Source = null;
         PosterImage.Visibility = Visibility.Collapsed;
         PreviewNote.Text = "Preview displays original source (effects are applied only on export).";
@@ -308,6 +313,42 @@ public partial class MainWindow : Window
             Process.Start(new ProcessStartInfo(lastOutput) { UseShellExecute = true });
         }
         catch (Exception ex) { MessageBox.Show(ex.Message, "Cannot open exported video", MessageBoxButton.OK, MessageBoxImage.Warning); }
+    }
+
+    private static BitmapImage BitmapFromBytes(byte[] pixels)
+    {
+        using var buffer = new MemoryStream(pixels);
+        var image = new BitmapImage();
+        image.BeginInit();
+        image.CacheOption = BitmapCacheOption.OnLoad;
+        image.StreamSource = buffer;
+        image.EndInit();
+        image.Freeze();
+        return image;
+    }
+
+    private async void PreviewEditedClick(object sender, RoutedEventArgs e)
+    {
+        if (busy || previewBusy || checkingAsset || details == null) return;
+        previewBusy = true;
+        Refresh();
+        try
+        {
+            var settings = ReadOptions();
+            // The preview is local and does not imply permission to publish.
+            byte[] pixels = await MediaEngine.GenerateEditedPreviewAsync(settings, details, SeekSlider.Value);
+            Preview.Pause();
+            PosterImage.Source = BitmapFromBytes(pixels);
+            PosterImage.Visibility = Visibility.Visible;
+            PreviewNote.Text = "Edited still preview (crop, color, logo, caption). Audio and fades require export.";
+            Status.Text = "Edited preview ready. The original source is unchanged.";
+        }
+        catch (Exception ex)
+        {
+            Status.Text = "Could not preview selected effects";
+            MessageBox.Show(ex.Message, "Edited preview", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally { previewBusy = false; Refresh(); }
     }
 
     private void PlayClick(object sender, RoutedEventArgs e)

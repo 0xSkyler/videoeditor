@@ -249,6 +249,21 @@ internal static class Program
         Ui<TextBox>(window, "TextOverlay").Text = "Apparel PLM";
         Check(convert.IsEnabled, "valid original text caption accepted");
         Check(convert.IsEnabled, "mixed narration/music, trim, fade and large overlay accepted");
+        // Run the real on-demand effect preview through the WPF button and FFmpeg.
+        var beforePoster = (System.Windows.Media.Imaging.BitmapSource?)Ui<Image>(window, "PosterImage").Source;
+        Check(Ui<Button>(window, "PreviewEditedButton").IsEnabled, "edited-frame preview enabled with imported media");
+        Click(Ui<Button>(window, "PreviewEditedButton"));
+        bool editedPosterReady = false;
+        for (int n = 0; n < 200; n++)
+        {
+            if (Ui<TextBlock>(window, "PreviewNote").Text.StartsWith("Edited still preview", StringComparison.Ordinal))
+            { editedPosterReady = true; break; }
+            await Task.Delay(100);
+        }
+        Check(editedPosterReady, "edited-frame button renders selected effects");
+        var afterPoster = (System.Windows.Media.Imaging.BitmapSource?)Ui<Image>(window, "PosterImage").Source;
+        Check(afterPoster is not null && !ReferenceEquals(beforePoster, afterPoster), "edited poster replaces original still");
+        Check(Ui<Image>(window, "PosterImage").Visibility == Visibility.Visible, "edited poster appears in preview pane");
         Check(Ui<TextBlock>(window, "EstimateText").Text.Contains("Estimated export"), "size estimate displayed");
         var first = await ExportViaUiAsync(window, dir, "edited narration and music");
         var firstDetails = await MediaEngine.ProbeAsync(first);
@@ -265,7 +280,15 @@ internal static class Program
         Check(Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(source))) == originalHash,
             "original source bytes unchanged");
 
+        // Regression: new imports must not retain stale source-relative trim/crop values.
+        Ui<TextBox>(window, "TrimStart").Text = "1.5";
+        Ui<TextBox>(window, "TrimEnd").Text = "2.1";
+        Ui<TextBox>(window, "CropX").Text = "2";
+        Ui<TextBox>(window, "CropW").Text = "200";
+        Ui<TextBox>(window, "CropH").Text = "120";
         await LoadAsync(window, Path.Combine(dir, "silent.mp4"));
+        Check(Ui<TextBox>(window, "TrimStart").Text == "0" && Ui<TextBox>(window, "TrimEnd").Text == "0", "new file clears stale trim");
+        Check(Ui<TextBox>(window, "CropX").Text == "0" && Ui<TextBox>(window, "CropW").Text == "0" && Ui<TextBox>(window, "CropH").Text == "0", "new file clears stale crop");
         Check(Ui<ComboBox>(window, "AudioMode").SelectedIndex == 1, "silent source defaults to mute");
         Check(Ui<CheckBox>(window, "RightsVideo").IsChecked != true, "new source resets visual rights");
         Check(Ui<CheckBox>(window, "RightsAudio").IsChecked != true, "new source resets audio rights");

@@ -271,6 +271,42 @@ public static class MediaEngine
         }
     }
 
+
+    /// <summary>Render a single still with the currently selected video effects; no persistent export.</summary>
+    public static async Task<byte[]> GenerateEditedPreviewAsync(Options input, MediaDetails source, double atSeconds, CancellationToken token = default)
+    {
+        token.ThrowIfCancellationRequested();
+        if (!double.IsFinite(atSeconds)) throw new ArgumentException("Preview time must be a valid number.");
+        double frameAt = Math.Clamp(atSeconds, 0, Math.Max(0, source.Duration - .45));
+        double frameEnd = Math.Min(source.Duration, frameAt + .8);
+        if (frameEnd - frameAt < .15) throw new InvalidOperationException("Video too short to make a frame preview.");
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "StudioCut-preview-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        var visual = new Options
+        {
+            Source = input.Source, OutputFolder = tempDirectory, RightsVideo = true, RightsAudio = true,
+            AudioMode = "Mute all", Container = "mp4", Quality = "Small File",
+            Start = frameAt, End = frameEnd,
+            CropX = input.CropX, CropY = input.CropY, CropW = input.CropW, CropH = input.CropH,
+            Width = input.Width, Height = input.Height, Fps = input.Fps,
+            Brightness = input.Brightness, Contrast = input.Contrast, Saturation = input.Saturation,
+            Watermark = input.Watermark, Overlay = input.Overlay, Text = input.Text,
+            // This preview is a still frame, not a transition/fade animation.
+            VideoFade = false
+        };
+        try
+        {
+            string clip = await ExportAsync(visual, source, _ => { }, token);
+            return await GeneratePosterAsync(clip, token);
+        }
+        finally
+        {
+            try { Directory.Delete(tempDirectory, recursive: true); }
+            catch (IOException) { /* Temp cleanup may finish after an antivirus scan. */ }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
     public static Task CheckAudioAsync(string file, CancellationToken token = default) => EnsureStreamAsync(file, "audio", token);
     public static Task CheckImageAsync(string file, CancellationToken token = default) => EnsureStreamAsync(file, "video", token);
 
@@ -309,10 +345,25 @@ public static class MediaEngine
                 if (File.Exists(output)) File.Delete(output);
                 await RunAsync(Tool("ffmpeg"), Arguments(o, details, output, false), progress, duration, ct);
             }
+            if (!File.Exists(output) || new FileInfo(output).Length < 1024)
+                throw new IOException("The output file was not created correctly.");
+            // A successful FFmpeg exit code alone is insufficient: verify the written container.
+            var result = await ProbeAsync(output, ct);
+            bool audioWanted = o.AudioMode != "Mute all";
+            if (result.AudioTracks == 0 && audioWanted)
+                throw new IOException("The exported file is missing its expected audio.");
+            if (result.AudioTracks != 0 && !audioWanted)
+                throw new IOException("The exported file unexpectedly contains audio.");
+            if (Math.Abs(result.Duration - duration) > Math.Max(.6, duration * .02))
+                throw new IOException("The exported video duration does not match the requested trim.");
+            if (result.Width % 2 != 0 || result.Height % 2 != 0)
+                throw new IOException("The exported H.264 dimensions are not supported.");
+            return output;
         }
-        catch { if (File.Exists(output)) File.Delete(output); throw; }
-        if (!File.Exists(output) || new FileInfo(output).Length == 0)
-            throw new IOException("FFmpeg finished but no playable output file was created.");
-        return output;
+        catch
+        {
+            try { if (File.Exists(output)) File.Delete(output); } catch (IOException) { }
+            throw;
+        }
     }
 }

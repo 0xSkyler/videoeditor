@@ -41,3 +41,9 @@ Install .NET 8 SDK on Windows, and place `ffmpeg.exe` and `ffprobe.exe` in `Stud
 On Windows, run `dotnet run --project StudioCut.Tests/StudioCut.Tests.csproj -c Release` for repeatable media conversion and validator tests. GitHub Actions build #8 passed 77 C# assertions and 7 real Windows FFmpeg exports. A separate Linux FFmpeg smoke suite ran 3 repeat rounds of 5 exports; these results do not replace manual Windows GUI, real GPU-encoding, or long-form stress testing. Copyright ownership remains the user's responsibility; re-encoding does not clear third-party rights.
 
 See `THIRD_PARTY_NOTICES.md` for the licensed FFmpeg components included in Windows builds.
+
+## Updated user experience
+- **Preview edited frame** renders the selected crop, color, logo, and short caption as a still without saving a permanent video. Audio and animated fades cannot be represented by a still.
+- Each newly imported video resets trim and crop values to avoid hidden out-of-range settings; rights approvals still must be re-confirmed.
+- Exports are re-probed before the UI displays success. Failed or invalid outputs are deleted when possible.
+- The included Windows GUI acceptance suite tests actual WPF buttons, playback poster generation, edits, and export files. It does not replace human-operated mouse/keyboard checks or hardware GPU benchmarks.
