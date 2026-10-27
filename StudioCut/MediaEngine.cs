@@ -15,41 +15,94 @@ public static class MediaEngine
         if (File.Exists(local)) return local;
         return name + ".exe";
     }
+    /// <summary>Read media stream metadata with a time limit and no attached-picture false positives.</summary>
     public static async Task<MediaDetails> ProbeAsync(string file, CancellationToken token = default)
     {
-        var psi = new ProcessStartInfo(Tool("ffprobe")) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
-        foreach (var a in new[] { "-v", "error", "-show_streams", "-show_format", "-of", "json", file }) psi.ArgumentList.Add(a);
-        using var p = Process.Start(psi) ?? throw new IOException("Cannot start ffprobe. Install FFmpeg or use the bundled release.");
-        string data = await p.StandardOutput.ReadToEndAsync(token);
-        string error = await p.StandardError.ReadToEndAsync(token);
-        await p.WaitForExitAsync(token);
-        if (p.ExitCode != 0) throw new IOException("Cannot read media: " + error);
-        using var doc = JsonDocument.Parse(data);
-        var d = new MediaDetails { Size = new FileInfo(file).Length };
-        double duration = 0;
-        if (doc.RootElement.TryGetProperty("format", out var fmt) && fmt.TryGetProperty("duration", out var dur)) double.TryParse(dur.GetString(), NumberStyles.Any, C, out duration);
-        d.Duration = duration;
-        foreach (var s in doc.RootElement.GetProperty("streams").EnumerateArray())
+        token.ThrowIfCancellationRequested();
+        if (string.IsNullOrWhiteSpace(file) || !File.Exists(file))
+            throw new FileNotFoundException("The selected video file no longer exists.", file);
+
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(30));
+        var psi = new ProcessStartInfo(Tool("ffprobe"))
         {
-            var kind = s.GetProperty("codec_type").GetString();
-            if (kind == "audio")
+            RedirectStandardOutput = true, RedirectStandardError = true,
+            UseShellExecute = false, CreateNoWindow = true
+        };
+        foreach (string arg in new[] { "-v", "error", "-show_streams", "-show_format", "-of", "json", file })
+            psi.ArgumentList.Add(arg);
+        using var process = Process.Start(psi)
+            ?? throw new IOException("Cannot start ffprobe. Reinstall the StudioCut package with its tools folder.");
+        using var stopProcess = deadline.Token.Register(() =>
+        {
+            try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
+            catch { }
+        });
+        try
+        {
+            // Drain both pipes concurrently: sequential pipe reading can deadlock on a noisy media probe.
+            Task<string> outputTask = process.StandardOutput.ReadToEndAsync(deadline.Token);
+            Task<string> errorTask = process.StandardError.ReadToEndAsync(deadline.Token);
+            await process.WaitForExitAsync(deadline.Token);
+            string json = await outputTask;
+            string error = await errorTask;
+            if (process.ExitCode != 0)
+                throw new IOException("Cannot read the selected video: " + error.Trim());
+            using var doc = JsonDocument.Parse(json);
+            var d = new MediaDetails { Size = new FileInfo(file).Length };
+            double parsed = 0;
+            if (doc.RootElement.TryGetProperty("format", out var fmt)
+                && fmt.TryGetProperty("duration", out var dur)
+                && dur.ValueKind == JsonValueKind.String)
+                double.TryParse(dur.GetString(), NumberStyles.Float, C, out parsed);
+            d.Duration = parsed;
+            if (!doc.RootElement.TryGetProperty("streams", out var streams)
+                || streams.ValueKind != JsonValueKind.Array)
+                throw new IOException("No readable video streams were found.");
+
+            foreach (var stream in streams.EnumerateArray())
             {
-                d.AudioTracks++;
-                if (d.AudioCodec.Length == 0 && s.TryGetProperty("codec_name", out var audioCodec))
-                    d.AudioCodec = audioCodec.GetString() ?? "";
+                string? kind = stream.TryGetProperty("codec_type", out var codecType)
+                    ? codecType.GetString() : null;
+                if (kind == "audio")
+                {
+                    d.AudioTracks++;
+                    if (d.AudioCodec.Length == 0 && stream.TryGetProperty("codec_name", out var audioCodec))
+                        d.AudioCodec = audioCodec.GetString() ?? "";
+                    continue;
+                }
+                if (kind != "video" || d.Width > 0) continue;
+                if (stream.TryGetProperty("disposition", out var flags)
+                    && flags.TryGetProperty("attached_pic", out var coverFlag)
+                    && coverFlag.ValueKind == JsonValueKind.Number && coverFlag.GetInt32() != 0)
+                    continue; // A podcast cover is not playable video.
+                if (stream.TryGetProperty("codec_name", out var videoCodec))
+                    d.VideoCodec = videoCodec.GetString() ?? "";
+                if (!stream.TryGetProperty("width", out var width) ||
+                    !stream.TryGetProperty("height", out var height)) continue;
+                int w = width.GetInt32(), h = height.GetInt32();
+                if (w < 1 || h < 1) continue;
+                d.Width = w; d.Height = h;
+                foreach (string rateKey in new[] { "avg_frame_rate", "r_frame_rate" })
+                {
+                    if (!stream.TryGetProperty(rateKey, out var rate) || rate.ValueKind != JsonValueKind.String)
+                        continue;
+                    string[] parts = (rate.GetString() ?? "").Split('/');
+                    if (parts.Length == 2 &&
+                        double.TryParse(parts[0], NumberStyles.Float, C, out double num) &&
+                        double.TryParse(parts[1], NumberStyles.Float, C, out double den) && den > 0)
+                        d.Fps = num / den;
+                    if (d.Fps > 0 && double.IsFinite(d.Fps)) break;
+                }
             }
-            if (kind != "video" || d.Width != 0) continue;
-            if (s.TryGetProperty("codec_name", out var codec))
-                d.VideoCodec = codec.GetString() ?? "";
-            d.Width = s.GetProperty("width").GetInt32(); d.Height = s.GetProperty("height").GetInt32();
-            if (s.TryGetProperty("avg_frame_rate", out var fps))
-            {
-                var parts = (fps.GetString() ?? "0/1").Split('/');
-                if (parts.Length == 2 && double.TryParse(parts[0], NumberStyles.Any, C, out var n) && double.TryParse(parts[1], NumberStyles.Any, C, out var den) && den != 0) d.Fps = n / den;
-            }
+            if (d.Width <= 0 || d.Height <= 0 || d.Duration <= 0 || d.Fps <= 0 || !double.IsFinite(d.Fps))
+                throw new IOException("Select a playable video with a valid duration and frame rate (cover-art-only audio is not a video).");
+            return d;
         }
-        if (d.Width <= 0 || d.Height <= 0 || d.Duration <= 0) throw new IOException("A valid video stream and duration are required.");
-        return d;
+        catch (OperationCanceledException) when (!token.IsCancellationRequested)
+        {
+            throw new IOException("Reading this video timed out. Try a local copy or another video file.");
+        }
     }
     public static IReadOnlyList<string> Validate(Options o, MediaDetails? media)
     {

@@ -149,13 +149,24 @@ public partial class MainWindow : Window
         if (e.Data.GetData(DataFormats.FileDrop) is string[] paths && paths.Length > 0)
         {
             e.Handled = true;
+            if (paths.Length != 1 || Directory.Exists(paths[0]))
+            {
+                StatusText.Text = "Drop exactly one video file, not a folder or several files.";
+                return;
+            }
             await LoadVideoAsync(paths[0]);
         }
     }
 
     private async void ConvertClick(object sender, RoutedEventArgs e)
     {
-        if (loading || converting || details is null || !File.Exists(source)) return;
+        if (loading || converting) return;
+        if (details is null || !File.Exists(source))
+        {
+            StatusText.Text = "Cannot convert: the video was removed or is not yet imported. Choose it again.";
+            RefreshButtons();
+            return;
+        }
 
         Options settings;
         try

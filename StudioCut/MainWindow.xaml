@@ -84,7 +84,7 @@
         <StackPanel Grid.Row="3" Margin="0,0,0,13">
             <TextBlock x:Name="SelectedVideoText" Text="No video selected" FontSize="16"
                        FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Foreground="#F1F5F9"/>
-            <TextBlock x:Name="SelectedDetailsText" Text="Your original video and narration will remain intact."
+            <TextBlock x:Name="SelectedDetailsText" Text="Your source file remains unchanged. Video and audio are re-encoded."
                        Foreground="#A9BCD1" Margin="0,5,0,0" TextWrapping="Wrap"/>
         </StackPanel>
 
