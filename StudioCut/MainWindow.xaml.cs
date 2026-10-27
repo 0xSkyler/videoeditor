@@ -16,6 +16,9 @@ public partial class MainWindow : Window
     private CancellationTokenSource? conversionCancel;
     private bool loading, converting;
     private int importVersion;
+    // Replaceable only for automated WPF acceptance tests. Production uses the native picker and Explorer.
+    private Func<string?> choosePath = ShowNativeVideoPicker;
+    private Action<string> openFolder = path => Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
 
     public MainWindow()
     {
@@ -117,15 +120,28 @@ public partial class MainWindow : Window
         catch (Exception) { /* A thumbnail is optional; the FFmpeg export still works. */ }
     }
 
-    private async void ChooseVideoClick(object sender, RoutedEventArgs e)
+    private static string? ShowNativeVideoPicker()
     {
-        if (converting) return;
         var dialog = new OpenFileDialog
         {
             Title = "Choose a video",
             Filter = "Video files|*.mp4;*.mov;*.mkv;*.avi;*.webm;*.m4v;*.wmv;*.mts;*.m2ts|All files|*.*"
         };
-        if (dialog.ShowDialog() == true) await LoadVideoAsync(dialog.FileName);
+        return dialog.ShowDialog() == true ? dialog.FileName : null;
+    }
+
+    private async void ChooseVideoClick(object sender, RoutedEventArgs e)
+    {
+        if (converting) return;
+        try
+        {
+            string? path = choosePath();
+            if (!string.IsNullOrWhiteSpace(path)) await LoadVideoAsync(path);
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "Could not choose video: " + ex.Message;
+        }
     }
 
     private void OnDragOver(object sender, DragEventArgs e)
@@ -142,19 +158,26 @@ public partial class MainWindow : Window
         DropZone.BorderBrush = new SolidColorBrush(Color.FromRgb(65, 91, 119));
     }
 
+    // The same path is used by actual Windows drag-and-drop and GUI tests.
+    private async Task HandleDroppedPathsAsync(string[] paths)
+    {
+        if (converting) return;
+        if (paths.Length != 1 || Directory.Exists(paths[0]))
+        {
+            StatusText.Text = "Drop exactly one video file, not a folder or several files.";
+            return;
+        }
+        await LoadVideoAsync(paths[0]);
+    }
+
     private async void OnDrop(object sender, DragEventArgs e)
     {
         DropZone.BorderBrush = new SolidColorBrush(Color.FromRgb(65, 91, 119));
         if (converting || !e.Data.GetDataPresent(DataFormats.FileDrop)) return;
-        if (e.Data.GetData(DataFormats.FileDrop) is string[] paths && paths.Length > 0)
+        if (e.Data.GetData(DataFormats.FileDrop) is string[] paths)
         {
             e.Handled = true;
-            if (paths.Length != 1 || Directory.Exists(paths[0]))
-            {
-                StatusText.Text = "Drop exactly one video file, not a folder or several files.";
-                return;
-            }
-            await LoadVideoAsync(paths[0]);
+            await HandleDroppedPathsAsync(paths);
         }
     }
 
@@ -241,7 +264,7 @@ public partial class MainWindow : Window
         {
             if (!File.Exists(latestOutput))
                 throw new FileNotFoundException("The completed export cannot be found.");
-            Process.Start(new ProcessStartInfo(Path.GetDirectoryName(latestOutput)!) { UseShellExecute = true });
+            openFolder(Path.GetDirectoryName(latestOutput)!);
         }
         catch (Exception ex)
         {
