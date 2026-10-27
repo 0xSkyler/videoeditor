@@ -9,7 +9,7 @@ internal static class Program
 {
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
     private static readonly List<ScenarioResult> Results = new();
-    private static string directory = "", audioVoice = "", music = "", silent = "", portrait = "", mixed = "", dual = "", avi = "", wide = "", longVideo = "";
+    private static string directory = "", audioVoice = "", music = "", silent = "", portrait = "", mixed = "", dual = "", avi = "", wide = "", longVideo = "", odd = "", tenBit = "", shortClip = "", coverAudio = "", metadataClip = "";
     private static int assertions;
 
     private sealed record ScenarioResult(
@@ -60,6 +60,11 @@ internal static class Program
         avi = Path.Combine(directory, "old input MPEG4 PCM.avi");
         wide = Path.Combine(directory, "Landscape 29.97fps.mp4");
         longVideo = Path.Combine(directory, "Long render for cancellation.mp4");
+        odd = Path.Combine(directory, "Odd dimensions 321x181.mkv");
+        tenBit = Path.Combine(directory, "10-bit original.mkv");
+        shortClip = Path.Combine(directory, "Very short silent clip.mp4");
+        coverAudio = Path.Combine(directory, "Podcast cover art only.mp3");
+        metadataClip = Path.Combine(directory, "Video with attribution.mp4");
 
         await Ffmpeg("-f","lavfi","-i","testsrc2=size=640x360:rate=30",
             "-f","lavfi","-i","sine=frequency=440:sample_rate=44100",
@@ -88,6 +93,23 @@ internal static class Program
             "-f","lavfi","-i","sine=frequency=580:sample_rate=44100",
             "-t","9","-c:v","libx264","-preset","ultrafast","-crf","30",
             "-pix_fmt","yuv420p","-c:a","aac","-b:a","64k",longVideo);
+        await Ffmpeg("-f", "lavfi", "-i", "testsrc=size=321x181:rate=24",
+            "-t", "1", "-c:v", "ffv1", "-pix_fmt", "bgr0", odd);
+        await Ffmpeg("-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24",
+            "-t", "1", "-c:v", "ffv1", "-pix_fmt", "yuv420p10le", tenBit);
+        await Ffmpeg("-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24",
+            "-t", "0.25", "-c:v", "libx264", "-preset", "ultrafast", "-an", shortClip);
+        string artwork = Path.Combine(directory, "podcast cover.jpg");
+        await Ffmpeg("-f", "lavfi", "-i", "color=c=red:s=128x128:d=1",
+            "-frames:v", "1", "-update", "1", artwork);
+        await Ffmpeg("-f", "lavfi", "-i", "sine=frequency=400:duration=2",
+            "-i", artwork, "-map", "0:a:0", "-map", "1:v:0",
+            "-c:a", "libmp3lame", "-c:v", "mjpeg", "-disposition:v:0", "attached_pic",
+            "-id3v2_version", "3", coverAudio);
+        await Ffmpeg("-i", audioVoice, "-map", "0", "-c", "copy",
+            "-metadata", "title=Original Higgsfield QA title",
+            "-metadata", "comment=User-generated narration and video",
+            metadataClip);
         Console.WriteLine("Synthetic offline video fixtures generated; no real Higgsfield data is used.");
     }
 
@@ -337,6 +359,115 @@ internal static class Program
             Assert(converted.AudioTracks == 2 && converted.VideoCodec == "h264",
                 "both audio tracks preserved by automatic conversion");
             return (output, "Multitrack source handled without input controls.");
+        });
+
+        await ScenarioAsync("Audio-only podcast with cover art must not be mistaken for a video",async () => {
+            bool rejected = false;
+            try { await MediaEngine.ProbeAsync(coverAudio); }
+            catch(IOException) { rejected = true; }
+            Assert(rejected, "cover-art-only MP3 is rejected despite its attached-picture video stream");
+            return ("", "Prevents misleading video ready UI for audio podcasts.");
+        });
+
+        await ScenarioAsync("Unicode source filename including Bengali, CJK and emoji",async () => {
+            string unicode = Path.Combine(directory, "হিগসফিল্ড_视频_🎬_voice.mp4");
+            File.Copy(audioVoice, unicode, true);
+            var media = await MediaEngine.ProbeAsync(unicode);
+            var settings = SimpleConvertPlan.Create(unicode, directory, media);
+            string output = await MediaEngine.ExportAsync(settings, media, _ => { }, CancellationToken.None, "converted");
+            Assert(File.Exists(output) && Path.GetFileName(output).Contains("🎬"),
+                "video and destination filenames support mixed Unicode");
+            var result = await MediaEngine.ProbeAsync(output);
+            Assert(result.AudioTracks == 1 && result.VideoCodec == "h264",
+                "Unicode filename export is playable and preserves narration");
+            return (output, "Exercises Windows paths with non-Latin text and emojis.");
+        });
+
+        await ScenarioAsync("Very long emoji filename truncates at a valid Unicode boundary",async () => {
+            string name = new string('A', 79) + "🎬" + "_extra_words.mp4";
+            string named = Path.Combine(directory, name);
+            File.Copy(audioVoice, named, true);
+            var media = await MediaEngine.ProbeAsync(named);
+            string output = await MediaEngine.ExportAsync(SimpleConvertPlan.Create(named,directory,media),
+                media, _ => { }, CancellationToken.None, "converted");
+            Assert(File.Exists(output) && !Path.GetFileName(output).Contains('�'),
+                "trimmed filename remains valid and new file exists");
+            Assert((await MediaEngine.ProbeAsync(output)).AudioTracks == 1,
+                "long source names do not break an exported narration stream");
+            return (output, "Tests UTF-16 surrogate boundary when shortening long filenames.");
+        });
+
+        await ScenarioAsync("Odd width and height padded for portable H.264",async () => {
+            var media = await MediaEngine.ProbeAsync(odd);
+            Assert(media.Width == 321 && media.Height == 181, "odd-sized source fixture is actually 321x181");
+            string output = await MediaEngine.ExportAsync(SimpleConvertPlan.Create(odd,directory,media),
+                media, _ => { }, CancellationToken.None, "converted");
+            var result = await MediaEngine.ProbeAsync(output);
+            Assert(result.Width == 322 && result.Height == 182,
+                "output adds only one padding pixel per odd dimension");
+            return (output, "H.264 4:2:0 requires even-coded video dimensions.");
+        });
+
+        await ScenarioAsync("10-bit source becomes standard 8-bit H.264 without losing video",async () => {
+            var media = await MediaEngine.ProbeAsync(tenBit);
+            Assert(media.VideoCodec == "ffv1", "fixture uses lossless non-H.264 video");
+            string output = await MediaEngine.ExportAsync(SimpleConvertPlan.Create(tenBit,directory,media),
+                media, _ => { }, CancellationToken.None, "converted");
+            var result = await MediaEngine.ProbeAsync(output);
+            Assert(result.VideoCodec == "h264" && result.Width == media.Width && result.Height == media.Height,
+                "10-bit source creates a playable H.264 video of the correct dimensions");
+            return (output, "Compatibility conversion is not HDR-preserving/lossless.");
+        });
+
+        await ScenarioAsync("A 250ms very short video encodes without a thumbnail dependency",async () => {
+            var media = await MediaEngine.ProbeAsync(shortClip);
+            Assert(media.Duration < .4 && media.Duration > .1, "short-clip source duration detected");
+            string output = await MediaEngine.ExportAsync(SimpleConvertPlan.Create(shortClip,directory,media),
+                media, _ => { }, CancellationToken.None, "converted");
+            var result = await MediaEngine.ProbeAsync(output);
+            Assert(result.AudioTracks == 0 && result.Duration < .8,
+                "sub-second clip is still usable without audio");
+            return (output, "No separate preview image is required to export.");
+        });
+
+        await ScenarioAsync("Source attribution title metadata is retained where supported",async () => {
+            var media = await MediaEngine.ProbeAsync(metadataClip);
+            string output = await MediaEngine.ExportAsync(SimpleConvertPlan.Create(metadataClip,directory,media),
+                media, _ => { }, CancellationToken.None, "converted");
+            var psi = new ProcessStartInfo(MediaEngine.Tool("ffprobe")) {
+                RedirectStandardOutput = true, RedirectStandardError = true,
+                CreateNoWindow = true, UseShellExecute = false
+            };
+            foreach (string arg in new[] { "-v","error","-show_entries","format_tags=title",
+                "-of","default=noprint_wrappers=1",output }) psi.ArgumentList.Add(arg);
+            using var probe = Process.Start(psi) ?? throw new IOException("Cannot read output metadata");
+            Task<string> titleTask = probe.StandardOutput.ReadToEndAsync();
+            Task<string> errorTask = probe.StandardError.ReadToEndAsync();
+            await probe.WaitForExitAsync();
+            string title = await titleTask;
+            await errorTask;
+            Assert(title.Contains("Original Higgsfield QA title"),
+                "compatible MP4 title attribution is carried into the new file");
+            return (output, "Original metadata is best-effort; only supported fields are preserved.");
+        });
+
+        await ScenarioAsync("Cancellation before media probing never starts an external process",async () => {
+            using var cancellation = new CancellationTokenSource();
+            cancellation.Cancel();
+            bool cancelled = false;
+            try { await MediaEngine.ProbeAsync(audioVoice, cancellation.Token); }
+            catch(OperationCanceledException) { cancelled = true; }
+            Assert(cancelled, "pre-cancelled ffprobe request returns cancellation");
+            return ("", "Cancellation is propagated before a media process starts.");
+        });
+
+        await ScenarioAsync("One-click destination missing is rejected before encoding",async () => {
+            var media = await MediaEngine.ProbeAsync(audioVoice);
+            bool rejected = false;
+            try { SimpleConvertPlan.Create(audioVoice,Path.Combine(directory,"not-created"),media); }
+            catch(DirectoryNotFoundException) { rejected = true; }
+            Assert(rejected, "inaccessible destination triggers a clear setup error");
+            return ("", "No writes to missing folders.");
         });
 
         await ScenarioAsync("Original source remains byte-for-byte unchanged",async () => {
