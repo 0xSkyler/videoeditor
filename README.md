@@ -1,5 +1,12 @@
 # StudioCut — Offline Windows Video Editor
 
+## NEW: Auto Copyright-Risk Review (v0.4.0)
+
+After a regular export, click **Auto: Review & Fix Copyright Risks** to make a separately named, high-quality MP4 copy. The automated preset uses H.264/AAC, preserves the current exported video's resolution, frame rate, content and duration as closely as encoding permits, and checks the output for playable video/audio. If audio rights are unconfirmed, it asks for approval before muting **all audio including narration**. Unconfirmed visual rights block the export.
+
+**This mode does not remove copyright and does not bypass or guarantee clearance from YouTube Content ID.** Bitrate, frame-rate, codec and metadata changes cannot confer legal rights. Read [Automatic Copyright-Risk Review](docs/AUTO_COPYRIGHT_RISK_MODE.md) before use.
+
+
 Native .NET 8 WPF application. Locally processes source video with FFmpeg; no accounts, web services, subscriptions or telemetry.
 
 ## Features
@@ -29,7 +36,7 @@ Install .NET 8 SDK on Windows, and place `ffmpeg.exe` and `ffprobe.exe` in `Stud
 - Audio and video fades apply to the start/end of trimmed output; complex timeline transitions are not included.
 - Hardware acceleration currently supports NVIDIA NVENC; if it fails, encoding retries with x264 on CPU.
 - Music selection must be licensed by the user. Exporting a file does not make copyrighted material original or guarantee platform approval.
-- The FFmpeg binaries are downloaded during Windows CI from Gyan.dev. Distribution must comply with the included FFmpeg build's license; inspect build configuration and attach applicable licenses before redistributing.
+- Windows CI currently reuses pinned FFmpeg executables from the verified StudioCut v0.2.0 release; these were originally obtained from a Gyan.dev build. Distribution must comply with the included FFmpeg build's license; inspect build configuration and attach applicable licenses before redistributing.
 
 ## Changelog
 

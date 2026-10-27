@@ -221,7 +221,7 @@ internal static class Program
                 Check(cancelledCorrectly, "cancelled encoding returns cancellation");
             }
             Check(Directory.GetFiles(dir, "*_edited_*").Length == exports, "invalid and cancelled exports did not leave partial files");
-            Console.WriteLine($"RESULT: PASS: {assertions} assertions and {exports} real FFmpeg exports");
+            Console.WriteLine($"RESULT: PASS: {assertions} assertions, {exports} standard and 2 auto-reviewed real FFmpeg exports");
         }
         finally
         {

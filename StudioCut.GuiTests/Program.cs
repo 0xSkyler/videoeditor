@@ -26,7 +26,7 @@ internal static class Program
             try
             {
                 await RunUserAcceptanceAsync(window);
-                Console.WriteLine($"GUI ACCEPTANCE PASS: {assertions} assertions, 3 user exports.");
+                Console.WriteLine($"GUI ACCEPTANCE PASS: {assertions} assertions, 4 UI-triggered exports (3 normal and 1 auto).");
             }
             catch (Exception ex)
             {
