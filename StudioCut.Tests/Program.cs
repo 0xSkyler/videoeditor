@@ -54,6 +54,8 @@ internal static class Program
         Check(output.Width > 0 && output.Height > 0, "export has video");
         Check(output.Width % 2 == 0 && output.Height % 2 == 0, "H264 output size must be even");
         Check((output.AudioTracks > 0) == expectAudio, "audio tracks match chosen mode");
+        Check(output.VideoCodec == "h264", "output uses H.264");
+        if (expectAudio) Check(output.AudioCodec == "aac", "included audio uses AAC");
         Check(Math.Abs(output.Duration - (expectedDuration ?? source.Duration)) < .50,
             $"export duration is close to expected: {output.Duration}");
         Check(progress >= .99, "progress reached completion");
@@ -177,6 +179,8 @@ internal static class Program
             Check(reviewed.AudioTracks == 1 && reviewed.Width == d.Width && reviewed.Height == d.Height &&
                   Math.Abs(reviewed.Duration - d.Duration) < .25,
                 "auto output preserves original dimensions, duration and approved audio");
+            Check(reviewed.VideoCodec == "h264" && reviewed.AudioCodec == "aac",
+                "auto audio-retaining output is standardized to H.264/AAC");
 
             var silentAuto = NewOptions(source, dir);
             silentAuto.RightsAudio = false;

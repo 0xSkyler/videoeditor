@@ -335,6 +335,8 @@ internal static class Program
         var inputVideo = await MediaEngine.ProbeAsync(second);
         Check(reviewedVideo.AudioTracks == inputVideo.AudioTracks && reviewedVideo.AudioTracks == 1,
             "automatic review preserves audio already confirmed as licensed");
+        Check(reviewedVideo.VideoCodec == "h264" && reviewedVideo.AudioCodec == "aac",
+            "auto reviewed file uses H.264 video and AAC audio");
         Check(reviewedVideo.Width == inputVideo.Width && reviewedVideo.Height == inputVideo.Height,
             "auto mode preserves completed video's frame dimensions");
         Check(Math.Abs(reviewedVideo.Duration - inputVideo.Duration) < .15,
