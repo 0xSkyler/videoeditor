@@ -53,11 +53,44 @@ internal static class Program
     private static void Click(Button button) =>
         button.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, button));
 
+    private static void SetPrivate(MainWindow window, string name, object value)
+    {
+        var f = typeof(MainWindow).GetField(name, BindingFlags.NonPublic | BindingFlags.Instance)
+            ?? throw new Exception("Missing dependency: " + name);
+        f.SetValue(window, value);
+    }
+
     private static async Task LoadAsync(MainWindow window, string path)
     {
         var loader = typeof(MainWindow).GetMethod("LoadVideoAsync", BindingFlags.NonPublic | BindingFlags.Instance)
-            ?? throw new Exception("Missing drag-and-drop/select import handler");
+            ?? throw new Exception("Missing source import handler");
         await ((Task?)loader.Invoke(window, new object[] { path }) ?? throw new Exception("Import returned no Task"));
+    }
+
+    private static async Task DropPathsAsync(MainWindow window, params string[] paths)
+    {
+        var handler = typeof(MainWindow).GetMethod("HandleDroppedPathsAsync",
+            BindingFlags.NonPublic | BindingFlags.Instance)
+            ?? throw new Exception("Missing shared drag/drop import handler");
+        await ((Task?)handler.Invoke(window, new object[] { paths })
+            ?? throw new Exception("Drop path handler returned no Task"));
+    }
+
+    private static async Task ChooseViaButtonAsync(MainWindow window, string path)
+    {
+        SetPrivate(window, "choosePath", new Func<string?>(() => path));
+        Click(Ui<Button>(window, "ChooseVideoButton"));
+        bool loaded = false;
+        for (int i = 0; i < 100; i++)
+        {
+            if (Ui<TextBlock>(window, "StatusText").Text.StartsWith("Ready. Click Convert", StringComparison.Ordinal)
+                && Ui<TextBlock>(window, "SelectedVideoText").Text == Path.GetFileName(path))
+            { loaded = true; break; }
+            if (Ui<TextBlock>(window, "StatusText").Text.StartsWith("Video import failed", StringComparison.Ordinal))
+                break;
+            await Task.Delay(70);
+        }
+        Check(loaded, "native Choose video UI button loads selected file via picker result");
     }
 
     private static async Task FFmpegAsync(params string[] args)
@@ -86,6 +119,7 @@ internal static class Program
         string silent = Path.Combine(dir, "silent.mp4");
         string portrait = Path.Combine(dir, "portrait.mp4");
         string multiple = Path.Combine(dir, "two voice tracks.mkv");
+        string heavy = Path.Combine(dir, "long render to cancel.mp4");
         await FFmpegAsync("-f","lavfi","-i","testsrc2=size=320x180:rate=24",
             "-f","lavfi","-i","sine=frequency=440:sample_rate=44100",
             "-t","2.8","-c:v","libx264","-preset","ultrafast","-crf","24",
@@ -98,7 +132,11 @@ internal static class Program
         await FFmpegAsync("-i",voiced,"-f","lavfi","-i","sine=frequency=660:sample_rate=44100",
             "-map","0:v:0","-map","0:a:0","-map","1:a:0","-t","2.8",
             "-c:v","copy","-c:a","aac",multiple);
-        return new[] { voiced, silent, portrait, multiple };
+        await FFmpegAsync("-f","lavfi","-i","testsrc2=size=1280x720:rate=30",
+            "-f","lavfi","-i","sine=frequency=700:sample_rate=44100",
+            "-t","12","-c:v","libx264","-preset","ultrafast","-crf","30",
+            "-pix_fmt","yuv420p","-c:a","aac","-b:a","64k",heavy);
+        return new[] { voiced, silent, portrait, multiple, heavy };
     }
 
     private static int CountManualControls(DependencyObject parent)
@@ -207,8 +245,18 @@ internal static class Program
             "automatic output folder is clearly identified");
         SaveScreenshot(window, Path.Combine(dir,"initial-simple-ui.png"));
 
-        await LoadAsync(window,media[0]);
+        await ChooseViaButtonAsync(window,media[0]);
         var firstMetadata=await MediaEngine.ProbeAsync(media[0]);
+        bool thumbnailReady = false;
+        for (int n = 0; n < 45; n++)
+        {
+            if (Ui<Image>(window, "PosterImage").Source is BitmapSource)
+            { thumbnailReady = true; break; }
+            await Task.Delay(100);
+        }
+        Check(thumbnailReady, "real FFmpeg poster frame is displayed after import");
+        Check(Ui<Image>(window, "EmptyPoster").Visibility == Visibility.Collapsed,
+            "placeholder is hidden when real first-frame preview appears");
         Check(Ui<TextBlock>(window,"SelectedVideoText").Text==Path.GetFileName(media[0]),
             "imported filename appears in simple UI");
         Check(Ui<TextBlock>(window, "SelectedDetailsText").Text.Contains("320") &&
@@ -220,11 +268,42 @@ internal static class Program
             "source stays byte-for-byte unchanged");
         SaveScreenshot(window,Path.Combine(dir,"completed-simple-ui.png"));
 
+        string folderOpened = "";
+        SetPrivate(window, "openFolder", new Action<string>(path => folderOpened = path));
+        Click(Ui<Button>(window, "OpenOutputButton"));
+        Check(Path.GetFullPath(folderOpened) == Path.GetFullPath(Path.GetDirectoryName(first)!),
+            "Open output folder button targets the exact directory containing the export");
+        Check(Path.GetFullPath(folderOpened) == Path.GetFullPath(SimpleConvertPlan.ResolveOutputFolder()),
+            "output folder automatically resolves to Videos/StudioCut Exports or its fallback");
+
+        // Cancelling a native picker must keep the existing video selected.
+        SetPrivate(window, "choosePath", new Func<string?>(() => null));
+        Click(Ui<Button>(window, "ChooseVideoButton"));
+        Check(Ui<Button>(window, "ConvertButton").IsEnabled &&
+              Ui<TextBlock>(window, "SelectedVideoText").Text == Path.GetFileName(media[0]),
+            "cancelled Choose video dialog keeps the current selection");
+
+        SetPrivate(window, "choosePath", new Func<string?>(() => throw new IOException("Simulated picker error")));
+        Click(Ui<Button>(window, "ChooseVideoButton"));
+        Check(Ui<TextBlock>(window, "StatusText").Text.Contains("Could not choose video"),
+            "picker errors are visible and do not crash the application");
+
+        await DropPathsAsync(window, media[0], media[1]);
+        Check(Ui<TextBlock>(window, "StatusText").Text.Contains("Drop exactly one video"),
+            "dropping two files gives an actionable message instead of silently picking the first");
+        await DropPathsAsync(window, dir);
+        Check(Ui<TextBlock>(window, "StatusText").Text.Contains("not a folder"),
+            "dropping a folder is rejected visibly");
+        Check(Ui<Button>(window, "ConvertButton").IsEnabled,
+            "invalid drops do not discard the previously selected valid video");
+
         string second = await ConvertViaButtonAsync(window,"repeat Convert click",firstMetadata);
         Check(first != second && File.Exists(first),
             "repeating conversion creates a unique file and keeps the previous export");
 
-        await LoadAsync(window,media[1]);
+        await DropPathsAsync(window,media[1]);
+        Check(Ui<TextBlock>(window, "SelectedVideoText").Text == Path.GetFileName(media[1]),
+            "single-file drop handler imports the intended video");
         Check(Ui<Button>(window,"OpenOutputButton").Visibility == Visibility.Collapsed,
             "importing another video clears stale output-file action");
         string silent = await ConvertViaButtonAsync(window,"silent video",await MediaEngine.ProbeAsync(media[1]));
@@ -240,6 +319,51 @@ internal static class Program
         Check(dualAudio.AudioTracks == 2,"multi-language fixture includes two separate audio tracks");
         await ConvertViaButtonAsync(window,"two-track narration",dualAudio);
 
+        // Button-driven cancellation with a real live FFmpeg process.
+        await LoadAsync(window,media[4]);
+        var outputDir = SimpleConvertPlan.ResolveOutputFolder();
+        var beforeCancel = Directory.GetFiles(outputDir, "long render to cancel_converted_*.mp4").ToHashSet();
+        Click(Ui<Button>(window, "ConvertButton"));
+        Check(Ui<Button>(window, "CancelButton").Visibility == Visibility.Visible &&
+              !Ui<Button>(window, "ConvertButton").IsEnabled,
+            "during encoding Cancel is visible and Convert is disabled");
+        bool activeEncoder = false;
+        for (int n = 0; n < 100; n++)
+        {
+            if (Ui<ProgressBar>(window,"Progress").Value > 0.05)
+            { activeEncoder = true; break; }
+            if (Ui<TextBlock>(window, "StatusText").Text.StartsWith("Conversion complete"))
+                break;
+            await Task.Delay(40);
+        }
+        Check(activeEncoder, "actual encoder reported progress before user clicked Cancel");
+        Click(Ui<Button>(window, "CancelButton"));
+        bool wasCancelled = false;
+        for (int n = 0; n < 150; n++)
+        {
+            if (Ui<TextBlock>(window, "StatusText").Text.StartsWith("Conversion cancelled"))
+            { wasCancelled = true; break; }
+            if (Ui<TextBlock>(window, "StatusText").Text.StartsWith("Conversion complete")) break;
+            await Task.Delay(50);
+        }
+        Check(wasCancelled, "Cancel button stops in-progress FFmpeg");
+        Check(Directory.GetFiles(outputDir,"long render to cancel_converted_*.mp4")
+            .All(path => beforeCancel.Contains(path)), "cancelled conversion leaves no new partial MP4");
+        Check(Ui<Button>(window, "ConvertButton").IsEnabled,
+            "Convert becomes available again after cancellation");
+        SaveScreenshot(window, Path.Combine(dir,"cancelled-simple-ui.png"));
+
+        // A missing/deleted file after successful import should produce a visible explanation.
+        string deletedSource = Path.Combine(dir,"delete-after-import.mp4");
+        File.Copy(media[0], deletedSource, true);
+        await LoadAsync(window, deletedSource);
+        File.Delete(deletedSource);
+        Click(Ui<Button>(window,"ConvertButton"));
+        Check(Ui<TextBlock>(window, "StatusText").Text.Contains("video was removed"),
+            "deleting a selected file produces a specific conversion error");
+        Check(!Ui<Button>(window, "ConvertButton").IsEnabled,
+            "Convert is disabled after the source disappears");
+
         string corrupt=Path.Combine(dir,"invalid-video.mp4");
         await File.WriteAllTextAsync(corrupt,"not an actual video stream");
         await LoadAsync(window,corrupt);
@@ -249,12 +373,13 @@ internal static class Program
             "invalid file displays a useful error");
         Check(Ui<Button>(window,"OpenOutputButton").Visibility == Visibility.Collapsed,
             "failed import does not expose a stale export");
+        SaveScreenshot(window,Path.Combine(dir,"invalid-input-simple-ui.png"));
 
         var report = new {
             date_utc = DateTimeOffset.UtcNow,
             assertions,
             exports = observations,
-            notes = "Automated WPF button interactions on a Windows Actions runner, not human mouse input or real Higgsfield-generated files.",
+            notes = "Automated WPF controls and real FFmpeg processes on Windows; native file picker and Explorer are injected at their boundaries, not manually operated with a mouse. Drag/drop path processing is exercised but not the physical Windows pointer drag gesture.",
             no_manual_options = CountManualControls(window) == 0
         };
         await File.WriteAllTextAsync(Path.Combine(dir,"results.json"),
